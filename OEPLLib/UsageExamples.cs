@@ -2,6 +2,11 @@ namespace OEPLLib;
 
 public static class UsageExamples
 {
+    public static OpenEpaperLinkRoamingClient CreateRoamingClient(params string[] accessPointAddresses) =>
+        new(
+            accessPointAddresses.Select((address, index) =>
+                new OpenEpaperLinkAccessPointRegistration($"ap-{index + 1}", address)));
+
     public static async Task RenderAndUploadJpegAsync(string apAddress, string mac, CancellationToken cancellationToken = default)
     {
         using var client = new OpenEpaperLinkClient(apAddress);
