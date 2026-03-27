@@ -44,8 +44,8 @@ await Task.Delay(TimeSpan.FromMinutes(1));
 await RunStepAsync("Weather forecast demo on Schwarz1", () => ShowWeatherForecastOnSchwarz1Async(client, schwarz1, schwarz1Type));
 Console.WriteLine($"Updated {schwarz1Alias} ({schwarz1.Mac}) with tomorrow's weather forecast.");
 
-await RunStepAsync("Second JSON demo on Schwarz2", () => ShowJsonDemoOnSchwarz2Async(client, schwarz2, schwarz2Type));
-Console.WriteLine($"Updated {schwarz2Alias} ({schwarz2.Mac}) with native JSON template rendering again.");
+await RunStepAsync("Second warehouse logistics JPEG demo on Schwarz2", () => ShowWarehouseLogisticsJpegOnSchwarz2Async(client, schwarz2, schwarz2Type));
+Console.WriteLine($"Updated {schwarz2Alias} ({schwarz2.Mac}) with the warehouse logistics JPEG example again.");
 await PrintStateAsync(client, "State after second update round");
 
 static async Task RunStepAsync(string name, Func<Task> action)
@@ -132,6 +132,34 @@ static async Task ShowJpegDemoOnSchwarz1Async(OpenEpaperLinkRoamingClient client
     Console.WriteLine($"Saved Schwarz1 PNG preview to {pngPath}");
     */
     
+    await client.UploadRenderedImageAsync(
+        tag.Mac,
+        canvas,
+        new OpenEpaperLinkImageUploadOptions(
+            OpenEpaperLinkDitherMode.None,
+            90,
+            22));
+}
+
+static async Task ShowWarehouseLogisticsJpegOnSchwarz2Async(OpenEpaperLinkRoamingClient client, OpenEpaperLinkTag tag, OpenEpaperLinkTagType tagType)
+{
+    using var canvas = new OeplCanvas(tagType.Width, tagType.Height, OeplAccentColor.Red);
+
+    canvas
+        .DrawRoundedRectangle(0, 0, tagType.Width - 1, tagType.Height - 1, 10, fill: "white", outline: "black", outlineWidth: 2)
+        .DrawText("Siemens, Ettlingen", 12, 14, 18, "Bahnschrift", "black")
+        .DrawText("ABT 220-5DM", 12, 38, 20, "Bahnschrift", "black")
+        .DrawLine(12, 62, tagType.Width - 12, 62, "black", 2)
+        .DrawBarcode("231231", 12, 72, 152, 28, OeplBarcodeType.Code128)
+        .DrawText("231231", 60, 103, 15, "Bahnschrift", "black")
+        .DrawLine(172, 72, 172, 136, "black", 2)
+        .DrawText("WX12312312", 184, 76, 13, "Segoe UI", "black")
+        .DrawText("WF156112221", 184, 92, 13, "Segoe UI", "black")
+        .DrawText("Kalibrierung + Eichung", 12, 124, 13, "Segoe UI", "black")
+        .DrawText("21.03.2026", 206, 124, 13, "Segoe UI", "black")
+        .DrawRectangle(10, 140, tagType.Width - 20, 8, fill: "red", outline: "red", outlineWidth: 1)
+        .QuantizeToDisplayPalette();
+
     await client.UploadRenderedImageAsync(
         tag.Mac,
         canvas,
@@ -277,8 +305,6 @@ internal sealed class OpenMeteoDailyForecast
     [JsonPropertyName("wind_speed_10m_max")]
     public List<double>? WindSpeedMax { get; init; }
 }
-
-
 
 
 
