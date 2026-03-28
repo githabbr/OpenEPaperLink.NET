@@ -48,6 +48,13 @@ await RunStepAsync("Second warehouse logistics JPEG demo on Schwarz2", () => Sho
 Console.WriteLine($"Updated {schwarz2Alias} ({schwarz2.Mac}) with the warehouse logistics JPEG example again.");
 await PrintStateAsync(client, "State after second update round");
 
+Console.WriteLine();
+Console.WriteLine("Waiting another 1 minute before the final JSON warehouse logistics update...");
+await Task.Delay(TimeSpan.FromMinutes(1));
+await RunStepAsync("Warehouse logistics JSON demo on Schwarz2", () => ShowWarehouseLogisticsJsonOnSchwarz2Async(client, schwarz2, schwarz2Type));
+Console.WriteLine($"Updated {schwarz2Alias} ({schwarz2.Mac}) with the warehouse logistics JSON example.");
+await PrintStateAsync(client, "State after final JSON update");
+
 static async Task RunStepAsync(string name, Func<Task> action)
 {
     try
@@ -167,6 +174,27 @@ static async Task ShowWarehouseLogisticsJpegOnSchwarz2Async(OpenEpaperLinkRoamin
             OpenEpaperLinkDitherMode.None,
             90,
             22));
+}
+
+static async Task ShowWarehouseLogisticsJsonOnSchwarz2Async(OpenEpaperLinkRoamingClient client, OpenEpaperLinkTag tag, OpenEpaperLinkTagType tagType)
+{
+    var document = new JsonTemplateDocument()
+        .Add(new JsonRotateCommand(0))
+        .Add(new JsonRoundedBoxCommand(0, 0, tagType.Width - 1, tagType.Height - 1, 10, OeplJsonColor.White, OeplJsonColor.Black, 2))
+        .Add(new JsonTextCommand(12, 14, "Siemens, Ettlingen", "fonts/bahnschrift20", OeplJsonColor.Black))
+        .Add(new JsonTextCommand(12, 38, "ABT 220-5DM", "fonts/bahnschrift20", OeplJsonColor.Black))
+        .Add(new JsonLineCommand(12, 62, tagType.Width - 12, 62, OeplJsonColor.Black))
+        .Add(new JsonRoundedBoxCommand(12, 72, 152, 28, 6, OeplJsonColor.White, OeplJsonColor.Black, 2))
+        .Add(new JsonTextCommand(88, 92, "231231", "fonts/bahnschrift20", OeplJsonColor.Black, OeplJsonTextAlignment.Center))
+        .Add(new JsonTextCommand(88, 111, "BARCODE SLOT", "fonts/bahnschrift20", OeplJsonColor.Red, OeplJsonTextAlignment.Center))
+        .Add(new JsonLineCommand(172, 72, 172, 136, OeplJsonColor.Black))
+        .Add(new JsonTextCommand(184, 76, "WX12312312", "fonts/bahnschrift20", OeplJsonColor.Black))
+        .Add(new JsonTextCommand(184, 92, "WF156112221", "fonts/bahnschrift20", OeplJsonColor.Black))
+        .Add(new JsonTextCommand(12, 124, "Kalibrierung + Eichung", "fonts/bahnschrift20", OeplJsonColor.Black))
+        .Add(new JsonTextCommand(206, 124, "21.03.2026", "fonts/bahnschrift20", OeplJsonColor.Black))
+        .Add(new JsonBoxCommand(10, 140, tagType.Width - 20, 8, OeplJsonColor.Red));
+
+    await client.UploadJsonTemplateAsync(tag.Mac, document);
 }
 
 static async Task ShowJsonDemoOnSchwarz2Async(OpenEpaperLinkRoamingClient client, OpenEpaperLinkTag tag, OpenEpaperLinkTagType tagType)
@@ -305,6 +333,4 @@ internal sealed class OpenMeteoDailyForecast
     [JsonPropertyName("wind_speed_10m_max")]
     public List<double>? WindSpeedMax { get; init; }
 }
-
-
 
