@@ -25,6 +25,11 @@ public sealed class OeplCanvas : IDisposable
 
     private readonly Image<Rgba32> _image;
 
+    public OeplCanvas(OpenEpaperLinkTagType tagType, bool portrait = false, OeplAccentColor accentColor = OeplAccentColor.Red, string background = "white")
+        : this(tagType.GetRenderWidth(portrait), tagType.GetRenderHeight(portrait), accentColor, background)
+    {
+    }
+
     public OeplCanvas(int width, int height, OeplAccentColor accentColor = OeplAccentColor.Red, string background = "white")
     {
         Width = width;

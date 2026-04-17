@@ -126,6 +126,12 @@ public sealed record OpenEpaperLinkTagType
     [JsonPropertyName("bpp")]
     [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
     public int BitsPerPixel { get; init; }
+
+    public int GetRenderWidth(bool portrait = false) => portrait ? Height : Width;
+
+    public int GetRenderHeight(bool portrait = false) => portrait ? Width : Height;
+
+    public int GetJsonRotation(bool portrait = false) => portrait ? 90 : 0;
 }
 
 public sealed record OpenEpaperLinkTagDebugSnapshot(

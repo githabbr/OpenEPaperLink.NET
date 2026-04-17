@@ -55,6 +55,16 @@ await RunStepAsync("Warehouse logistics JSON demo on Schwarz2", () => ShowWareho
 Console.WriteLine($"Updated {schwarz2Alias} ({schwarz2.Mac}) with the warehouse logistics JSON example.");
 await PrintStateAsync(client, "State after final JSON update");
 
+Console.WriteLine();
+Console.WriteLine("Waiting another 1 minute before the portrait demo round...");
+await Task.Delay(TimeSpan.FromMinutes(1));
+await RunStepAsync("Portrait JPEG demo on Schwarz1", () => ShowPortraitJpegDemoOnSchwarz1Async(client, schwarz1, schwarz1Type));
+Console.WriteLine($"Updated {schwarz1Alias} ({schwarz1.Mac}) with the portrait JPEG example.");
+
+await RunStepAsync("Portrait JSON demo on Schwarz2", () => ShowPortraitJsonDemoOnSchwarz2Async(client, schwarz2, schwarz2Type));
+Console.WriteLine($"Updated {schwarz2Alias} ({schwarz2.Mac}) with the portrait JSON example.");
+await PrintStateAsync(client, "State after portrait update round");
+
 static async Task RunStepAsync(string name, Func<Task> action)
 {
     try
@@ -79,7 +89,7 @@ static async Task ShowWeatherForecastOnSchwarz1Async(OpenEpaperLinkRoamingClient
 {
     var forecast = await GetTomorrowForecastAsync(forecastLatitude, forecastLongitude);
 
-    using var canvas = new OeplCanvas(tagType.Width, tagType.Height, OeplAccentColor.Red);
+    using var canvas = new OeplCanvas(tagType, accentColor: OeplAccentColor.Red);
 
     canvas
         .DrawRoundedRectangle(0, 0, tagType.Width - 1, tagType.Height - 1, 10, fill: "white", outline: "black", outlineWidth: 2)
@@ -110,23 +120,7 @@ static async Task ShowWeatherForecastOnSchwarz1Async(OpenEpaperLinkRoamingClient
 
 static async Task ShowJpegDemoOnSchwarz1Async(OpenEpaperLinkRoamingClient client, OpenEpaperLinkTag tag, OpenEpaperLinkTagType tagType)
 {
-    using var canvas = new OeplCanvas(tagType.Width, tagType.Height, OeplAccentColor.Red);
-
-    canvas
-        .DrawRoundedRectangle(0, 0, tagType.Width - 1, tagType.Height - 1, 10, fill: "white", outline: "black", outlineWidth: 2)
-        .DrawRectangle(10, 10, 102, 32, fill: "red", outline: "red", outlineWidth: 1)
-        .DrawText("Schwarz1", 61, 17, 18, "Bahnschrift", "white")
-        .DrawText("JPEG pipeline", 124, 14, 20, "Segoe UI", "black")
-        .DrawText(DateTime.Now.ToString("yyyy-MM-dd HH:mm"), 124, 38, 13, "Segoe UI", "black")
-        .DrawLine(10, 56, 286, 56, "black", 2)
-        .DrawText("Shapes", 12, 64, 13, "Segoe UI", "black")
-        .DrawCircle(40, 102, 18, fill: "red")
-        .DrawRectangle(70, 84, 36, 36, fill: "black", outline: "black")
-        .DrawPolygon([new PointF(126, 118), new PointF(144, 84), new PointF(162, 118)], fill: "red", outline: "black", outlineWidth: 1)
-        .DrawText("Barcode + QR", 180, 64, 13, "Segoe UI", "black")
-        .DrawBarcode("SW1-2026-03-19", 178, 82, 108, 26, OeplBarcodeType.Code128)
-        .DrawQrCode("http://192.168.2.178", 226, 110, 56, 56)
-        .QuantizeToDisplayPalette();
+    await ShowJpegDemoOnSchwarz1CoreAsync(client, tag, tagType, portrait: false);
 
     /*
     var outputDirectory = Path.Combine(AppContext.BaseDirectory, "output");
@@ -138,7 +132,52 @@ static async Task ShowJpegDemoOnSchwarz1Async(OpenEpaperLinkRoamingClient client
     Console.WriteLine($"Saved Schwarz1 JPEG to {jpegPath}");
     Console.WriteLine($"Saved Schwarz1 PNG preview to {pngPath}");
     */
-    
+}
+
+static async Task ShowPortraitJpegDemoOnSchwarz1Async(OpenEpaperLinkRoamingClient client, OpenEpaperLinkTag tag, OpenEpaperLinkTagType tagType) =>
+    await ShowJpegDemoOnSchwarz1CoreAsync(client, tag, tagType, portrait: true);
+
+static async Task ShowJpegDemoOnSchwarz1CoreAsync(OpenEpaperLinkRoamingClient client, OpenEpaperLinkTag tag, OpenEpaperLinkTagType tagType, bool portrait)
+{
+    using var canvas = new OeplCanvas(tagType, portrait, OeplAccentColor.Red);
+    var width = canvas.Width;
+    var height = canvas.Height;
+
+    if (!portrait)
+    {
+        canvas
+            .DrawRoundedRectangle(0, 0, width - 1, height - 1, 10, fill: "white", outline: "black", outlineWidth: 2)
+            .DrawRectangle(10, 10, 102, 32, fill: "red", outline: "red", outlineWidth: 1)
+            .DrawText("Schwarz1", 61, 17, 18, "Bahnschrift", "white")
+            .DrawText("JPEG pipeline", 124, 14, 20, "Segoe UI", "black")
+            .DrawText(DateTime.Now.ToString("yyyy-MM-dd HH:mm"), 124, 38, 13, "Segoe UI", "black")
+            .DrawLine(10, 56, 286, 56, "black", 2)
+            .DrawText("Shapes", 12, 64, 13, "Segoe UI", "black")
+            .DrawCircle(40, 102, 18, fill: "red")
+            .DrawRectangle(70, 84, 36, 36, fill: "black", outline: "black")
+            .DrawPolygon([new PointF(126, 118), new PointF(144, 84), new PointF(162, 118)], fill: "red", outline: "black", outlineWidth: 1)
+            .DrawText("Barcode + QR", 180, 64, 13, "Segoe UI", "black")
+            .DrawBarcode("SW1-2026-03-19", 178, 82, 108, 26, OeplBarcodeType.Code128)
+            .DrawQrCode(accessPointAddress, 226, 110, 56, 56);
+    }
+    else
+    {
+        canvas
+            .DrawRoundedRectangle(0, 0, width - 1, height - 1, 10, fill: "white", outline: "black", outlineWidth: 2)
+            .DrawRectangle(10, 10, width - 20, 28, fill: "red", outline: "red", outlineWidth: 1)
+            .DrawText("Schwarz1", 22, 16, 18, "Bahnschrift", "white")
+            .DrawText("Portrait JPEG", 14, 54, 18, "Segoe UI", "black")
+            .DrawText(DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), 14, 78, 13, "Segoe UI", "black")
+            .DrawText(DateTime.Now.ToString("HH:mm", CultureInfo.InvariantCulture), 14, 96, 13, "Segoe UI", "red")
+            .DrawLine(10, 118, width - 10, 118, "black", 2)
+            .DrawText("Scan for AP", 24, 128, 13, "Segoe UI", "black")
+            .DrawQrCode(accessPointAddress, 18, 146, 92, 92)
+            .DrawText("Code128", 26, 248, 13, "Segoe UI", "black")
+            .DrawBarcode("SW1-PORTRAIT", 14, 264, width - 28, 18, OeplBarcodeType.Code128);
+    }
+
+    canvas.QuantizeToDisplayPalette();
+
     await client.UploadRenderedImageAsync(
         tag.Mac,
         canvas,
@@ -150,7 +189,7 @@ static async Task ShowJpegDemoOnSchwarz1Async(OpenEpaperLinkRoamingClient client
 
 static async Task ShowWarehouseLogisticsJpegOnSchwarz2Async(OpenEpaperLinkRoamingClient client, OpenEpaperLinkTag tag, OpenEpaperLinkTagType tagType)
 {
-    using var canvas = new OeplCanvas(tagType.Width, tagType.Height, OeplAccentColor.Red);
+    using var canvas = new OeplCanvas(tagType, accentColor: OeplAccentColor.Red);
 
     canvas
         .DrawRoundedRectangle(0, 0, tagType.Width - 1, tagType.Height - 1, 10, fill: "white", outline: "black", outlineWidth: 2)
@@ -179,7 +218,7 @@ static async Task ShowWarehouseLogisticsJpegOnSchwarz2Async(OpenEpaperLinkRoamin
 static async Task ShowWarehouseLogisticsJsonOnSchwarz2Async(OpenEpaperLinkRoamingClient client, OpenEpaperLinkTag tag, OpenEpaperLinkTagType tagType)
 {
     var document = new JsonTemplateDocument()
-        .Add(new JsonRotateCommand(0))
+        .Add(new JsonRotateCommand(tagType.GetJsonRotation()))
         .Add(new JsonRoundedBoxCommand(0, 0, tagType.Width - 1, tagType.Height - 1, 10, OeplJsonColor.White, OeplJsonColor.Black, 2))
         .Add(new JsonTextCommand(12, 14, "Siemens, Ettlingen", "fonts/bahnschrift20", OeplJsonColor.Black))
         .Add(new JsonTextCommand(12, 38, "ABT 220-5DM", "fonts/bahnschrift20", OeplJsonColor.Black))
@@ -199,22 +238,49 @@ static async Task ShowWarehouseLogisticsJsonOnSchwarz2Async(OpenEpaperLinkRoamin
 
 static async Task ShowJsonDemoOnSchwarz2Async(OpenEpaperLinkRoamingClient client, OpenEpaperLinkTag tag, OpenEpaperLinkTagType tagType)
 {
-    var document = new JsonTemplateDocument()
-        .Add(new JsonRotateCommand(0))
-        .Add(new JsonRoundedBoxCommand(0, 0, tagType.Width - 1, tagType.Height - 1, 10, OeplJsonColor.White, OeplJsonColor.Black, 2))
-        .Add(new JsonBoxCommand(12, 12, 68, 28, OeplJsonColor.Red))
-        .Add(new JsonTextCommand(46, 30, "S2", "fonts/bahnschrift20", OeplJsonColor.White, OeplJsonTextAlignment.Center))
-        .Add(new JsonTextCommand(92, 20, "Schwarz2", "fonts/bahnschrift20", OeplJsonColor.Black))
-        .Add(new JsonTextCommand(92, 42, "Native JSON template", "fonts/bahnschrift20", OeplJsonColor.Red))
-        .Add(new JsonLineCommand(10, 58, 286, 58, OeplJsonColor.Black))
-        .Add(new JsonBoxCommand(12, 72, 90, 28, OeplJsonColor.Red))
-        .Add(new JsonTextCommand(57, 90, "JSON", "fonts/bahnschrift20", OeplJsonColor.White, OeplJsonTextAlignment.Center))
-        .Add(new JsonTextBoxCommand(112, 72, 168, 34, "AP-drawn text, lines, circles and triangles.", "fonts/bahnschrift20", OeplJsonColor.Black, 1.0f))
-        .Add(new JsonCircleCommand(36, 128, 11, OeplJsonColor.Black))
-        .Add(new JsonTriangleCommand(62, 138, 74, 116, 86, 138, OeplJsonColor.Red))
-        .Add(new JsonLineCommand(104, 118, 280, 118, OeplJsonColor.Black))
-        .Add(new JsonTextCommand(104, 130, tag.Mac, "fonts/bahnschrift20", OeplJsonColor.Black))
-        .Add(new JsonTextCommand(238, 22, DateTime.Now.ToString("HH:mm"), "fonts/bahnschrift20", OeplJsonColor.Black, OeplJsonTextAlignment.Center));
+    await ShowJsonDemoOnSchwarz2CoreAsync(client, tag, tagType, portrait: false);
+}
+
+static async Task ShowPortraitJsonDemoOnSchwarz2Async(OpenEpaperLinkRoamingClient client, OpenEpaperLinkTag tag, OpenEpaperLinkTagType tagType) =>
+    await ShowJsonDemoOnSchwarz2CoreAsync(client, tag, tagType, portrait: true);
+
+static async Task ShowJsonDemoOnSchwarz2CoreAsync(OpenEpaperLinkRoamingClient client, OpenEpaperLinkTag tag, OpenEpaperLinkTagType tagType, bool portrait)
+{
+    var width = tagType.GetRenderWidth(portrait);
+    var height = tagType.GetRenderHeight(portrait);
+    var rotation = tagType.GetJsonRotation(portrait);
+
+    var document = !portrait
+        ? new JsonTemplateDocument()
+            .Add(new JsonRotateCommand(rotation))
+            .Add(new JsonRoundedBoxCommand(0, 0, width - 1, height - 1, 10, OeplJsonColor.White, OeplJsonColor.Black, 2))
+            .Add(new JsonBoxCommand(12, 12, 68, 28, OeplJsonColor.Red))
+            .Add(new JsonTextCommand(46, 30, "S2", "fonts/bahnschrift20", OeplJsonColor.White, OeplJsonTextAlignment.Center))
+            .Add(new JsonTextCommand(92, 20, "Schwarz2", "fonts/bahnschrift20", OeplJsonColor.Black))
+            .Add(new JsonTextCommand(92, 42, "Native JSON template", "fonts/bahnschrift20", OeplJsonColor.Red))
+            .Add(new JsonLineCommand(10, 58, 286, 58, OeplJsonColor.Black))
+            .Add(new JsonBoxCommand(12, 72, 90, 28, OeplJsonColor.Red))
+            .Add(new JsonTextCommand(57, 90, "JSON", "fonts/bahnschrift20", OeplJsonColor.White, OeplJsonTextAlignment.Center))
+            .Add(new JsonTextBoxCommand(112, 72, 168, 34, "AP-drawn text, lines, circles and triangles.", "fonts/bahnschrift20", OeplJsonColor.Black, 1.0f))
+            .Add(new JsonCircleCommand(36, 128, 11, OeplJsonColor.Black))
+            .Add(new JsonTriangleCommand(62, 138, 74, 116, 86, 138, OeplJsonColor.Red))
+            .Add(new JsonLineCommand(104, 118, 280, 118, OeplJsonColor.Black))
+            .Add(new JsonTextCommand(104, 130, tag.Mac, "fonts/bahnschrift20", OeplJsonColor.Black))
+            .Add(new JsonTextCommand(238, 22, DateTime.Now.ToString("HH:mm"), "fonts/bahnschrift20", OeplJsonColor.Black, OeplJsonTextAlignment.Center))
+        : new JsonTemplateDocument()
+            .Add(new JsonRotateCommand(rotation))
+            .Add(new JsonRoundedBoxCommand(0, 0, width - 1, height - 1, 10, OeplJsonColor.White, OeplJsonColor.Black, 2))
+            .Add(new JsonBoxCommand(10, 10, width - 20, 28, OeplJsonColor.Red))
+            .Add(new JsonTextCommand(width / 2, 30, "S2 PORTRAIT", "fonts/bahnschrift20", OeplJsonColor.White, OeplJsonTextAlignment.Center))
+            .Add(new JsonTextCommand(14, 56, "Native JSON template", "fonts/bahnschrift20", OeplJsonColor.Black))
+            .Add(new JsonTextCommand(14, 76, DateTime.Now.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture), "fonts/bahnschrift20", OeplJsonColor.Red))
+            .Add(new JsonLineCommand(10, 96, width - 10, 96, OeplJsonColor.Black))
+            .Add(new JsonRoundedBoxCommand(14, 110, width - 28, 70, 8, OeplJsonColor.White, OeplJsonColor.Black, 2))
+            .Add(new JsonTextCommand(width / 2, 136, "JSON", "fonts/bahnschrift20", OeplJsonColor.Red, OeplJsonTextAlignment.Center))
+            .Add(new JsonTextBoxCommand(20, 150, width - 40, 24, "Portrait layout using the same tag type metadata.", "fonts/bahnschrift20", OeplJsonColor.Black, 1.0f, OeplJsonTextAlignment.Center))
+            .Add(new JsonTextBoxCommand(16, 196, width - 32, 44, tag.Mac, "fonts/bahnschrift20", OeplJsonColor.Black, 1.0f, OeplJsonTextAlignment.Center))
+            .Add(new JsonCircleCommand(width / 2, 258, 10, OeplJsonColor.Black))
+            .Add(new JsonTriangleCommand(width / 2, 284, (width / 2) - 18, 248, (width / 2) + 18, 248, OeplJsonColor.Red));
 
     await client.UploadJsonTemplateAsync(tag.Mac, document);
 }
