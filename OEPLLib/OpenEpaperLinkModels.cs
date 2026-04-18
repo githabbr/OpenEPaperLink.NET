@@ -131,7 +131,9 @@ public sealed record OpenEpaperLinkTagType
 
     public int GetRenderHeight(bool portrait = false) => portrait ? Width : Height;
 
-    public int GetJsonRotation(bool portrait = false) => portrait ? 90 : 0;
+    public int GetRotationQuarterTurns(bool portrait = false) => portrait ? 1 : 0;
+
+    public int GetJsonRotation(bool portrait = false) => GetRotationQuarterTurns(portrait);
 }
 
 public sealed record OpenEpaperLinkTagDebugSnapshot(
@@ -157,7 +159,8 @@ public enum OpenEpaperLinkDitherMode
 public sealed record OpenEpaperLinkImageUploadOptions(
     OpenEpaperLinkDitherMode? Dither = null,
     int JpegQuality = 100,
-    int? ContentMode = null);
+    int? ContentMode = null,
+    int? Rotate = null);
 
 public enum OeplAccentColor
 {

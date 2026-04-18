@@ -119,7 +119,8 @@ public sealed class OpenEpaperLinkClient : IDisposable
     {
         var dither = options?.Dither ?? OpenEpaperLinkDitherMode.None;
         var contentMode = options?.ContentMode;
-        var multipart = BuildBrowserLikeImageUploadMultipart(mac, ((int)dither).ToString(), contentMode, fileBytes);
+        var rotate = options?.Rotate;
+        var multipart = BuildBrowserLikeImageUploadMultipart(mac, ((int)dither).ToString(), contentMode, rotate, fileBytes);
         using var content = new ByteArrayContent(multipart.BodyBytes);
         content.Headers.ContentType = MediaTypeHeaderValue.Parse($"multipart/form-data; boundary={multipart.Boundary}");
         LogMultipartBody("POST", "imgupload", content.Headers.ContentType, multipart.BodyBytes);
@@ -127,7 +128,7 @@ public sealed class OpenEpaperLinkClient : IDisposable
         using var response = await SendAsync(
             "POST",
             "imgupload",
-            $"mac={mac}, fileBytes={fileBytes.Length}, dither={(int)dither}, contentMode={contentMode?.ToString() ?? "<none>"}",
+            $"mac={mac}, fileBytes={fileBytes.Length}, dither={(int)dither}, contentMode={contentMode?.ToString() ?? "<none>"}, rotate={rotate?.ToString() ?? "<none>"}",
             () => _httpClient.PostAsync("imgupload", content, cancellationToken)).ConfigureAwait(false);
         await EnsureSuccessAsync(response, cancellationToken).ConfigureAwait(false);
         await LogResponseBodyAsync("POST", "imgupload", response, cancellationToken).ConfigureAwait(false);
@@ -135,7 +136,10 @@ public sealed class OpenEpaperLinkClient : IDisposable
 
     public async Task UploadRenderedImageAsync(string mac, OeplCanvas canvas, OpenEpaperLinkImageUploadOptions? options = null, CancellationToken cancellationToken = default)
     {
-        var effectiveOptions = options ?? new OpenEpaperLinkImageUploadOptions();
+        var effectiveOptions = (options ?? new OpenEpaperLinkImageUploadOptions()) with
+        {
+            Rotate = options?.Rotate ?? 0
+        };
         var jpeg = canvas.ToJpegBytes(effectiveOptions.JpegQuality);
         await UploadJpegAsync(mac, jpeg, effectiveOptions, cancellationToken).ConfigureAwait(false);
     }
@@ -286,7 +290,7 @@ public sealed class OpenEpaperLinkClient : IDisposable
 
     private void Debug(string message) => DebugLog?.Invoke(message);
 
-    private static MultipartPayload BuildBrowserLikeImageUploadMultipart(string mac, string dither, int? contentMode, byte[] fileBytes)
+    private static MultipartPayload BuildBrowserLikeImageUploadMultipart(string mac, string dither, int? contentMode, int? rotate, byte[] fileBytes)
     {
         var boundary = "----WebKitFormBoundary" + Convert.ToHexString(RandomNumberGenerator.GetBytes(8));
         using var stream = new MemoryStream();
@@ -296,6 +300,11 @@ public sealed class OpenEpaperLinkClient : IDisposable
         if (contentMode is not null)
         {
             WriteFormField(stream, boundary, "contentmode", contentMode.Value.ToString());
+        }
+
+        if (rotate is not null)
+        {
+            WriteFormField(stream, boundary, "rotate", rotate.Value.ToString());
         }
 
         WriteAscii(stream, $"--{boundary}\r\n");

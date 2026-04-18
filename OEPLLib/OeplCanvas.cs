@@ -28,6 +28,7 @@ public sealed class OeplCanvas : IDisposable
     public OeplCanvas(OpenEpaperLinkTagType tagType, bool portrait = false, OeplAccentColor accentColor = OeplAccentColor.Red, string background = "white")
         : this(tagType.GetRenderWidth(portrait), tagType.GetRenderHeight(portrait), accentColor, background)
     {
+        RotationQuarterTurns = tagType.GetRotationQuarterTurns(portrait);
     }
 
     public OeplCanvas(int width, int height, OeplAccentColor accentColor = OeplAccentColor.Red, string background = "white")
@@ -41,6 +42,8 @@ public sealed class OeplCanvas : IDisposable
     public int Width { get; }
 
     public int Height { get; }
+
+    public int RotationQuarterTurns { get; }
 
     public OeplAccentColor AccentColor { get; }
 
@@ -277,6 +280,11 @@ public sealed class OeplCanvas : IDisposable
     private Image<Rgb24> CreateExportImage()
     {
         var exportImage = _image.Clone();
+        if (RotationQuarterTurns != 0)
+        {
+            exportImage.Mutate(context => context.Rotate(ToInverseRotateMode(RotationQuarterTurns)));
+        }
+
         exportImage.Metadata.ExifProfile = null;
         exportImage.Metadata.IccProfile = null;
         exportImage.Metadata.XmpProfile = null;
@@ -294,6 +302,14 @@ public sealed class OeplCanvas : IDisposable
 
         return exportImage.CloneAs<Rgb24>();
     }
+
+    private static RotateMode ToInverseRotateMode(int quarterTurns) => (quarterTurns % 4) switch
+    {
+        1 => RotateMode.Rotate90,
+        2 => RotateMode.Rotate180,
+        3 => RotateMode.Rotate270,
+        _ => RotateMode.None
+    };
 
     private static JpegEncoder CreateJpegEncoder(int quality) => new()
     {

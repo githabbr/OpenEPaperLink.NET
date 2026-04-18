@@ -31,6 +31,20 @@ var schwarz1Type = await client.GetTagTypeAsync(schwarz1.HardwareType)
 var schwarz2Type = await client.GetTagTypeAsync(schwarz2.HardwareType)
     ?? throw new InvalidOperationException($"No tag type metadata was found for {schwarz2Alias}.");
 
+
+await RunStepAsync("Portrait JPEG demo on Schwarz1", () => ShowPortraitJpegDemoOnSchwarz1Async(client, schwarz1, schwarz1Type));
+Console.WriteLine($"Updated {schwarz1Alias} ({schwarz1.Mac}) with the portrait JPEG example.");
+
+await RunStepAsync("Portrait JSON demo on Schwarz2", () => ShowPortraitJsonDemoOnSchwarz2Async(client, schwarz2, schwarz2Type));
+Console.WriteLine($"Updated {schwarz2Alias} ({schwarz2.Mac}) with the portrait JSON example.");
+await PrintStateAsync(client, "State after portrait update round");
+
+Console.WriteLine("Waiting another 1 minute after the portrait demo round...");
+await Task.Delay(TimeSpan.FromMinutes(1));
+
+return;
+
+
 await RunStepAsync("Second JPEG demo on Schwarz1", () => ShowJpegDemoOnSchwarz1Async(client, schwarz1, schwarz1Type));
 Console.WriteLine($"Updated {schwarz1Alias} ({schwarz1.Mac}) with JPEG rendering again.");
 
@@ -44,9 +58,11 @@ await Task.Delay(TimeSpan.FromMinutes(1));
 await RunStepAsync("Weather forecast demo on Schwarz1", () => ShowWeatherForecastOnSchwarz1Async(client, schwarz1, schwarz1Type));
 Console.WriteLine($"Updated {schwarz1Alias} ({schwarz1.Mac}) with tomorrow's weather forecast.");
 
+/* temporarily disabled
 await RunStepAsync("Second warehouse logistics JPEG demo on Schwarz2", () => ShowWarehouseLogisticsJpegOnSchwarz2Async(client, schwarz2, schwarz2Type));
 Console.WriteLine($"Updated {schwarz2Alias} ({schwarz2.Mac}) with the warehouse logistics JPEG example again.");
 await PrintStateAsync(client, "State after second update round");
+*
 
 Console.WriteLine();
 Console.WriteLine("Waiting another 1 minute before the final JSON warehouse logistics update...");
@@ -54,16 +70,9 @@ await Task.Delay(TimeSpan.FromMinutes(1));
 await RunStepAsync("Warehouse logistics JSON demo on Schwarz2", () => ShowWarehouseLogisticsJsonOnSchwarz2Async(client, schwarz2, schwarz2Type));
 Console.WriteLine($"Updated {schwarz2Alias} ({schwarz2.Mac}) with the warehouse logistics JSON example.");
 await PrintStateAsync(client, "State after final JSON update");
+*/
 
 Console.WriteLine();
-Console.WriteLine("Waiting another 1 minute before the portrait demo round...");
-await Task.Delay(TimeSpan.FromMinutes(1));
-await RunStepAsync("Portrait JPEG demo on Schwarz1", () => ShowPortraitJpegDemoOnSchwarz1Async(client, schwarz1, schwarz1Type));
-Console.WriteLine($"Updated {schwarz1Alias} ({schwarz1.Mac}) with the portrait JPEG example.");
-
-await RunStepAsync("Portrait JSON demo on Schwarz2", () => ShowPortraitJsonDemoOnSchwarz2Async(client, schwarz2, schwarz2Type));
-Console.WriteLine($"Updated {schwarz2Alias} ({schwarz2.Mac}) with the portrait JSON example.");
-await PrintStateAsync(client, "State after portrait update round");
 
 static async Task RunStepAsync(string name, Func<Task> action)
 {
