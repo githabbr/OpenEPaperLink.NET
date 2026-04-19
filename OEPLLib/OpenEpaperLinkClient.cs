@@ -117,9 +117,10 @@ public sealed class OpenEpaperLinkClient : IDisposable
 
     public async Task UploadJpegAsync(string mac, byte[] fileBytes, OpenEpaperLinkImageUploadOptions? options = null, CancellationToken cancellationToken = default)
     {
-        var dither = options?.Dither ?? OpenEpaperLinkDitherMode.None;
-        var contentMode = options?.ContentMode;
-        var rotate = options?.Rotate;
+        var effectiveOptions = NormalizeImageUploadOptions(options);
+        var dither = effectiveOptions.Dither ?? OpenEpaperLinkDitherMode.None;
+        var contentMode = effectiveOptions.ContentMode;
+        var rotate = effectiveOptions.Rotate;
         var multipart = BuildBrowserLikeImageUploadMultipart(mac, ((int)dither).ToString(), contentMode, rotate, fileBytes);
         using var content = new ByteArrayContent(multipart.BodyBytes);
         content.Headers.ContentType = MediaTypeHeaderValue.Parse($"multipart/form-data; boundary={multipart.Boundary}");
@@ -136,10 +137,7 @@ public sealed class OpenEpaperLinkClient : IDisposable
 
     public async Task UploadRenderedImageAsync(string mac, OeplCanvas canvas, OpenEpaperLinkImageUploadOptions? options = null, CancellationToken cancellationToken = default)
     {
-        var effectiveOptions = (options ?? new OpenEpaperLinkImageUploadOptions()) with
-        {
-            Rotate = options?.Rotate ?? 0
-        };
+        var effectiveOptions = NormalizeImageUploadOptions(options);
         var jpeg = canvas.ToJpegBytes(effectiveOptions.JpegQuality);
         await UploadJpegAsync(mac, jpeg, effectiveOptions, cancellationToken).ConfigureAwait(false);
     }
@@ -289,6 +287,13 @@ public sealed class OpenEpaperLinkClient : IDisposable
     }
 
     private void Debug(string message) => DebugLog?.Invoke(message);
+
+    private static OpenEpaperLinkImageUploadOptions NormalizeImageUploadOptions(OpenEpaperLinkImageUploadOptions? options) =>
+        (options ?? new OpenEpaperLinkImageUploadOptions()) with
+        {
+            ContentMode = options?.ContentMode ?? 22,
+            Rotate = options?.Rotate ?? 0
+        };
 
     private static MultipartPayload BuildBrowserLikeImageUploadMultipart(string mac, string dither, int? contentMode, int? rotate, byte[] fileBytes)
     {
