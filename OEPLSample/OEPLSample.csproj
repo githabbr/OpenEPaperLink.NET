@@ -11,4 +11,11 @@
     <ProjectReference Include="..\OEPLLib\OEPLLib.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="..\OEPLLib\Assets\Fonts\**\*">
+      <Link>Assets\Fonts\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
 </Project>

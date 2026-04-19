@@ -103,19 +103,19 @@ static async Task ShowWeatherForecastOnSchwarz1Async(OpenEpaperLinkRoamingClient
     canvas
         .DrawRoundedRectangle(0, 0, tagType.Width - 1, tagType.Height - 1, 10, fill: "white", outline: "black", outlineWidth: 2)
         .DrawRectangle(10, 10, 84, 30, fill: "red", outline: "red", outlineWidth: 1)
-        .DrawText("WETTER", 18, 16, 18, "Bahnschrift", "white")
-        .DrawText(forecastLocationName, 106, 14, 22, "Bahnschrift", "black")
-        .DrawText(forecast.DateLabel, 106, 38, 13, "Segoe UI", "black")
+        .DrawTextFromFile("WETTER", 18, 16, 18, OeplBundledFonts.SansBold, "white")
+        .DrawTextFromFile(forecastLocationName, 106, 14, 22, OeplBundledFonts.SansBold, "black")
+        .DrawTextFromFile(forecast.DateLabel, 106, 38, 13, OeplBundledFonts.SansRegular, "black")
         .DrawLine(10, 54, 286, 54, "black", 2)
-        .DrawText(forecast.ConditionLabel, 12, 66, 18, "Bahnschrift", forecast.AccentColor)
-        .DrawText($"Max {forecast.MaxTemperatureC} C", 12, 94, 15, "Segoe UI", "black")
-        .DrawText($"Min {forecast.MinTemperatureC} C", 12, 116, 15, "Segoe UI", "black")
-        .DrawText($"Regen {forecast.PrecipitationProbabilityPercent}%", 12, 138, 13, "Segoe UI", "black")
+        .DrawTextFromFile(forecast.ConditionLabel, 12, 66, 18, OeplBundledFonts.SansBold, forecast.AccentColor)
+        .DrawTextFromFile($"Max {forecast.MaxTemperatureC} C", 12, 94, 15, OeplBundledFonts.SansRegular, "black")
+        .DrawTextFromFile($"Min {forecast.MinTemperatureC} C", 12, 116, 15, OeplBundledFonts.SansRegular, "black")
+        .DrawTextFromFile($"Regen {forecast.PrecipitationProbabilityPercent}%", 12, 138, 13, OeplBundledFonts.SansRegular, "black")
         .DrawRectangle(178, 68, 98, 54, fill: null, outline: "black", outlineWidth: 2)
-        .DrawText("Wind", 188, 78, 14, "Segoe UI", "black")
-        .DrawText($"{forecast.WindSpeedKmh} km/h", 188, 100, 18, "Bahnschrift", "black")
-        .DrawText(forecast.IconText, 237, 116, 22, "Bahnschrift", "white")
-        .DrawText($"Refreshed {DateTime.Now:HH:mm}", 182, 139, 11, "Segoe UI", "black")
+        .DrawTextFromFile("Wind", 188, 78, 14, OeplBundledFonts.SansRegular, "black")
+        .DrawTextFromFile($"{forecast.WindSpeedKmh} km/h", 188, 100, 18, OeplBundledFonts.SansBold, "black")
+        .DrawTextFromFile(forecast.IconText, 237, 116, 22, OeplBundledFonts.SansBold, "white")
+        .DrawTextFromFile($"Refreshed {DateTime.Now:HH:mm}", 182, 139, 11, OeplBundledFonts.SansRegular, "black")
         .QuantizeToDisplayPalette();
 
     await client.UploadRenderedImageAsync(
@@ -157,15 +157,15 @@ static async Task ShowJpegDemoOnSchwarz1CoreAsync(OpenEpaperLinkRoamingClient cl
         canvas
             .DrawRoundedRectangle(0, 0, width - 1, height - 1, 10, fill: "white", outline: "black", outlineWidth: 2)
             .DrawRectangle(10, 10, 102, 32, fill: "red", outline: "red", outlineWidth: 1)
-            .DrawText("Schwarz1", 61, 17, 18, "Bahnschrift", "white")
-            .DrawText("JPEG pipeline", 124, 14, 20, "Segoe UI", "black")
-            .DrawText(DateTime.Now.ToString("yyyy-MM-dd HH:mm"), 124, 38, 13, "Segoe UI", "black")
+            .DrawTextFromFile("Schwarz1", 61, 17, 18, OeplBundledFonts.SansBold, "white")
+            .DrawTextFromFile("JPEG pipeline", 124, 14, 20, OeplBundledFonts.SansRegular, "black")
+            .DrawTextFromFile(DateTime.Now.ToString("yyyy-MM-dd HH:mm"), 124, 38, 13, OeplBundledFonts.SansRegular, "black")
             .DrawLine(10, 56, 286, 56, "black", 2)
-            .DrawText("Shapes", 12, 64, 13, "Segoe UI", "black")
+            .DrawTextFromFile("Shapes", 12, 64, 13, OeplBundledFonts.SansRegular, "black")
             .DrawCircle(40, 102, 18, fill: "red")
             .DrawRectangle(70, 84, 36, 36, fill: "black", outline: "black")
             .DrawPolygon([new PointF(126, 118), new PointF(144, 84), new PointF(162, 118)], fill: "red", outline: "black", outlineWidth: 1)
-            .DrawText("Barcode + QR", 180, 64, 13, "Segoe UI", "black")
+            .DrawTextFromFile("Barcode + QR", 180, 64, 13, OeplBundledFonts.SansRegular, "black")
             .DrawBarcode("SW1-2026-03-19", 178, 82, 108, 26, OeplBarcodeType.Code128)
             .DrawQrCode(accessPointAddress, 226, 110, 56, 56);
     }
@@ -174,14 +174,14 @@ static async Task ShowJpegDemoOnSchwarz1CoreAsync(OpenEpaperLinkRoamingClient cl
         canvas
             .DrawRoundedRectangle(0, 0, width - 1, height - 1, 10, fill: "white", outline: "black", outlineWidth: 2)
             .DrawRectangle(10, 10, width - 20, 28, fill: "red", outline: "red", outlineWidth: 1)
-            .DrawText("Schwarz1", 22, 16, 18, "Bahnschrift", "white")
-            .DrawText("Portrait JPEG", 14, 54, 18, "Segoe UI", "black")
-            .DrawText(DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), 14, 78, 13, "Segoe UI", "black")
-            .DrawText(DateTime.Now.ToString("HH:mm", CultureInfo.InvariantCulture), 14, 96, 13, "Segoe UI", "red")
+            .DrawTextFromFile("Schwarz1", 22, 16, 18, OeplBundledFonts.SansBold, "white")
+            .DrawTextFromFile("Portrait JPEG", 14, 54, 18, OeplBundledFonts.SansRegular, "black")
+            .DrawTextFromFile(DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), 14, 78, 13, OeplBundledFonts.SansRegular, "black")
+            .DrawTextFromFile(DateTime.Now.ToString("HH:mm", CultureInfo.InvariantCulture), 14, 96, 13, OeplBundledFonts.SansRegular, "red")
             .DrawLine(10, 118, width - 10, 118, "black", 2)
-            .DrawText("Scan for AP", 24, 128, 13, "Segoe UI", "black")
+            .DrawTextFromFile("Scan for AP", 24, 128, 13, OeplBundledFonts.SansRegular, "black")
             .DrawQrCode(accessPointAddress, 18, 146, 92, 92)
-            .DrawText("Code128", 26, 248, 13, "Segoe UI", "black")
+            .DrawTextFromFile("Code128", 26, 248, 13, OeplBundledFonts.SansRegular, "black")
             .DrawBarcode("SW1-PORTRAIT", 14, 264, width - 28, 18, OeplBarcodeType.Code128);
     }
 
@@ -202,16 +202,16 @@ static async Task ShowWarehouseLogisticsJpegOnSchwarz2Async(OpenEpaperLinkRoamin
 
     canvas
         .DrawRoundedRectangle(0, 0, tagType.Width - 1, tagType.Height - 1, 10, fill: "white", outline: "black", outlineWidth: 2)
-        .DrawText("Siemens, Ettlingen", 12, 14, 18, "Bahnschrift", "black")
-        .DrawText("ABT 220-5DM", 12, 38, 20, "Bahnschrift", "black")
+        .DrawTextFromFile("Siemens, Ettlingen", 12, 14, 18, OeplBundledFonts.SansBold, "black")
+        .DrawTextFromFile("ABT 220-5DM", 12, 38, 20, OeplBundledFonts.SansBold, "black")
         .DrawLine(12, 62, tagType.Width - 12, 62, "black", 2)
         .DrawBarcode("231231", 12, 72, 152, 28, OeplBarcodeType.Code128)
-        .DrawText("231231", 60, 103, 15, "Bahnschrift", "black")
+        .DrawTextFromFile("231231", 60, 103, 15, OeplBundledFonts.SansBold, "black")
         .DrawLine(172, 72, 172, 136, "black", 2)
-        .DrawText("WX12312312", 184, 76, 13, "Segoe UI", "black")
-        .DrawText("WF156112221", 184, 92, 13, "Segoe UI", "black")
-        .DrawText("Kalibrierung + Eichung", 12, 124, 13, "Segoe UI", "black")
-        .DrawText("21.03.2026", 206, 124, 13, "Segoe UI", "black")
+        .DrawTextFromFile("WX12312312", 184, 76, 13, OeplBundledFonts.SansRegular, "black")
+        .DrawTextFromFile("WF156112221", 184, 92, 13, OeplBundledFonts.SansRegular, "black")
+        .DrawTextFromFile("Kalibrierung + Eichung", 12, 124, 13, OeplBundledFonts.SansRegular, "black")
+        .DrawTextFromFile("21.03.2026", 206, 124, 13, OeplBundledFonts.SansRegular, "black")
         .DrawRectangle(10, 140, tagType.Width - 20, 8, fill: "red", outline: "red", outlineWidth: 1)
         .QuantizeToDisplayPalette();
 
@@ -408,4 +408,3 @@ internal sealed class OpenMeteoDailyForecast
     [JsonPropertyName("wind_speed_10m_max")]
     public List<double>? WindSpeedMax { get; init; }
 }
-

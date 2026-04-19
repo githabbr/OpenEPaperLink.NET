@@ -65,8 +65,8 @@ public static class UsageExamples
         using var canvas = new OeplCanvas(tagType.Width, tagType.Height, OeplAccentColor.Red);
         canvas
             .DrawRectangle(0, 0, tagType.Width, tagType.Height, fill: "white", outline: "black", outlineWidth: 2)
-            .DrawText("OpenEPaperLink", 10, 10, 22, "Bahnschrift", "black")
-            .DrawText("System font + shapes + QR + barcode", 10, 40, 14, "Segoe UI", "red")
+            .DrawTextFromFile("OpenEPaperLink", 10, 10, 22, OeplBundledFonts.SansBold, "black")
+            .DrawTextFromFile("Bundled TTF + shapes + QR + barcode", 10, 40, 14, OeplBundledFonts.SansRegular, "red")
             .DrawLine(10, 62, tagType.Width - 10, 62, "black", 2)
             .DrawBarcode("1234567890", 10, 75, 180, 40)
             .DrawQrCode("https://openepaperlink.de", tagType.Width - 92, tagType.Height - 92, 82, 82)

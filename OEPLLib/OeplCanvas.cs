@@ -9,11 +9,14 @@ using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 using ZXing;
 using ZXing.Common;
+using System.Collections.Concurrent;
 
 namespace OEPLLib;
 
 public sealed class OeplCanvas : IDisposable
 {
+    private static readonly ConcurrentDictionary<string, FontFamily> FontFamiliesByPath = new(StringComparer.OrdinalIgnoreCase);
+
     private static readonly DrawingOptions PixelPerfectDrawingOptions = new()
     {
         GraphicsOptions = new GraphicsOptions
@@ -73,8 +76,7 @@ public sealed class OeplCanvas : IDisposable
 
     public OeplCanvas DrawTextFromFile(string text, float x, float y, float size, string fontPath, string color = "black")
     {
-        var collection = new FontCollection();
-        var family = collection.Add(fontPath);
+        var family = ResolveFontFamilyFromFile(fontPath);
         var font = family.CreateFont(size);
         var options = new RichTextOptions(font) { Origin = new PointF(x, y) };
         _image.Mutate(context => context.DrawText(
@@ -326,6 +328,21 @@ public sealed class OeplCanvas : IDisposable
         }
 
         return family.CreateFont(size, style);
+    }
+
+    private static FontFamily ResolveFontFamilyFromFile(string fontPath)
+    {
+        var resolvedPath = System.IO.Path.GetFullPath(fontPath);
+        if (!File.Exists(resolvedPath))
+        {
+            throw new FileNotFoundException($"Font file '{resolvedPath}' was not found.", resolvedPath);
+        }
+
+        return FontFamiliesByPath.GetOrAdd(resolvedPath, static path =>
+        {
+            var collection = new FontCollection();
+            return collection.Add(path);
+        });
     }
 
     private static IPath BuildRoundedRectangle(float x, float y, float width, float height, float radius)
