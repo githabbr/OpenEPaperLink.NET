@@ -17,6 +17,8 @@ const double forecastLongitude = 8.917778;
 const string forecastLocationName = "Bisingen, DE";
 const int mealPlanDayCount = 8;
 var shoppingListPollInterval = TimeSpan.FromMinutes(1);
+var shoppingListRenderMode = LoadRenderModeSetting("SHOPPING_LIST_RENDER_MODE", DisplayRenderMode.Jpeg);
+var mealPlanRenderMode = LoadRenderModeSetting("MEAL_PLAN_RENDER_MODE", DisplayRenderMode.Jpeg);
 
 using var client = new OpenEpaperLinkRoamingClient(
 [
@@ -94,8 +96,8 @@ else
         cancellationTokenSource.Cancel();
     };
 
-    Console.WriteLine($"Starting Mealie sync for list '{supermarktShoppingListId}' to {schwarz1Alias} in portrait mode.");
-    Console.WriteLine($"Starting Mealie sync for the meal plan on {schwarz2Alias} for today plus the next {mealPlanDayCount - 1} days.");
+    Console.WriteLine($"Starting Mealie sync for list '{supermarktShoppingListId}' to {schwarz1Alias} in portrait mode using {shoppingListRenderMode} rendering.");
+    Console.WriteLine($"Starting Mealie sync for the meal plan on {schwarz2Alias} for today plus the next {mealPlanDayCount - 1} days using {mealPlanRenderMode} rendering.");
     Console.WriteLine("Only unchecked shopping-list items are shown on Schwarz1. Press Ctrl+C to stop.");
 
     await Task.WhenAll(
@@ -106,6 +108,7 @@ else
             schwarz1Type,
             supermarktShoppingListId,
             shoppingListPollInterval,
+            shoppingListRenderMode,
             cancellationTokenSource.Token),
         RunMealPlanSyncLoopAsync(
             mealieClient,
@@ -114,6 +117,7 @@ else
             schwarz2Type,
             shoppingListPollInterval,
             mealPlanDayCount,
+            mealPlanRenderMode,
             cancellationTokenSource.Token));
 
 }
@@ -203,7 +207,7 @@ static HttpClient CreateMealieClient(string mealieToken)
     return httpClient;
 }
 
-static string LoadRequiredSetting(string key)
+static string? LoadOptionalSetting(string key)
 {
     var value = Environment.GetEnvironmentVariable(key);
     if (!string.IsNullOrWhiteSpace(value))
@@ -220,8 +224,31 @@ static string LoadRequiredSetting(string key)
         }
     }
 
-    throw new InvalidOperationException(
-        $"Missing required setting '{key}'. Set it as an environment variable or add it to OEPLSample/.env.");
+    return null;
+}
+
+static string LoadRequiredSetting(string key)
+{
+    return LoadOptionalSetting(key)
+        ?? throw new InvalidOperationException(
+            $"Missing required setting '{key}'. Set it as an environment variable or add it to OEPLSample/.env.");
+}
+
+static DisplayRenderMode LoadRenderModeSetting(string key, DisplayRenderMode defaultValue)
+{
+    var value = LoadOptionalSetting(key) ?? LoadOptionalSetting("OEPL_RENDER_MODE");
+    if (string.IsNullOrWhiteSpace(value))
+    {
+        return defaultValue;
+    }
+
+    return value.Trim().ToLowerInvariant() switch
+    {
+        "json" => DisplayRenderMode.Json,
+        "jpeg" or "jpg" or "image" => DisplayRenderMode.Jpeg,
+        _ => throw new InvalidOperationException(
+            $"Unsupported render mode '{value}' for '{key}'. Use 'json' or 'jpeg'.")
+    };
 }
 
 static IEnumerable<string> GetCandidateEnvFilePaths()
@@ -292,6 +319,7 @@ static async Task RunShoppingListSyncLoopAsync(
     OpenEpaperLinkTagType tagType,
     string shoppingListId,
     TimeSpan pollInterval,
+    DisplayRenderMode renderMode,
     CancellationToken cancellationToken)
 {
     string? latestKnownState = null;
@@ -308,9 +336,9 @@ static async Task RunShoppingListSyncLoopAsync(
             }
             else
             {
-                await ShowShoppingListOnSchwarz1Async(oeplClient, tag, tagType, snapshot, cancellationToken);
+                await ShowShoppingListOnSchwarz1Async(oeplClient, tag, tagType, snapshot, renderMode, cancellationToken);
                 latestKnownState = snapshot.StateSignature;
-                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Synced {snapshot.Items.Count} open item(s) from '{snapshot.Name}' to {tag.Alias ?? tag.Mac}.");
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Synced {snapshot.Items.Count} open item(s) from '{snapshot.Name}' to {tag.Alias ?? tag.Mac} via {renderMode}.");
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -340,6 +368,7 @@ static async Task RunMealPlanSyncLoopAsync(
     OpenEpaperLinkTagType tagType,
     TimeSpan pollInterval,
     int dayCount,
+    DisplayRenderMode renderMode,
     CancellationToken cancellationToken)
 {
     string? latestKnownState = null;
@@ -357,9 +386,9 @@ static async Task RunMealPlanSyncLoopAsync(
             }
             else
             {
-                await ShowMealPlanOnSchwarz2Async(oeplClient, tag, tagType, snapshot, cancellationToken);
+                await ShowMealPlanOnSchwarz2Async(oeplClient, tag, tagType, snapshot, renderMode, cancellationToken);
                 latestKnownState = snapshot.StateSignature;
-                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Synced {snapshot.TotalMealCount} planned meal(s) from {snapshot.StartDate:yyyy-MM-dd} to {snapshot.EndDate:yyyy-MM-dd} to {tag.Alias ?? tag.Mac}.");
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Synced {snapshot.TotalMealCount} planned meal(s) from {snapshot.StartDate:yyyy-MM-dd} to {snapshot.EndDate:yyyy-MM-dd} to {tag.Alias ?? tag.Mac} via {renderMode}.");
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -669,8 +698,15 @@ static async Task ShowShoppingListOnSchwarz1Async(
     OpenEpaperLinkTag tag,
     OpenEpaperLinkTagType tagType,
     ShoppingListSnapshot snapshot,
+    DisplayRenderMode renderMode,
     CancellationToken cancellationToken)
 {
+    if (renderMode == DisplayRenderMode.Json)
+    {
+        await ShowShoppingListOnSchwarz1AsJsonAsync(client, tag, tagType, snapshot, cancellationToken);
+        return;
+    }
+
     using var canvas = new OeplCanvas(tagType, portrait: true, OeplAccentColor.Red);
     var width = canvas.Width;
     var height = canvas.Height;
@@ -782,8 +818,15 @@ static async Task ShowMealPlanOnSchwarz2Async(
     OpenEpaperLinkTag tag,
     OpenEpaperLinkTagType tagType,
     MealPlanSnapshot snapshot,
+    DisplayRenderMode renderMode,
     CancellationToken cancellationToken)
 {
+    if (renderMode == DisplayRenderMode.Json)
+    {
+        await ShowMealPlanOnSchwarz2AsJsonAsync(client, tag, tagType, snapshot, cancellationToken);
+        return;
+    }
+
     using var canvas = new OeplCanvas(tagType, accentColor: OeplAccentColor.Red);
     var width = canvas.Width;
     var height = canvas.Height;
@@ -854,6 +897,167 @@ static async Task ShowMealPlanOnSchwarz2Async(
             90,
             22),
         cancellationToken);
+}
+
+static async Task ShowShoppingListOnSchwarz1AsJsonAsync(
+    OpenEpaperLinkRoamingClient client,
+    OpenEpaperLinkTag tag,
+    OpenEpaperLinkTagType tagType,
+    ShoppingListSnapshot snapshot,
+    CancellationToken cancellationToken)
+{
+    const string font = "fonts/bahnschrift20";
+    var width = tagType.GetRenderWidth(portrait: true);
+    var height = tagType.GetRenderHeight(portrait: true);
+    const int padding = 5;
+    const int headerHeight = 24;
+    const int infoTop = 34;
+    const int listTop = 52;
+    const int footerHeight = 14;
+    const int lineHeight = 16;
+    var availableListHeight = height - listTop - footerHeight - padding;
+    var maxVisibleLines = Math.Max(1, availableListHeight / lineHeight);
+    var standardLineMaxCharacters = Math.Max(12, (width - 28) / 6);
+    var recipeLineMaxCharacters = Math.Max(10, (width - 26) / 6);
+    var indentedLineMaxCharacters = Math.Max(8, (width - 42) / 6);
+
+    var visibleLines = BuildShoppingListDisplayLines(snapshot.Items)
+        .Select(line => line with
+        {
+            Text = TruncateWithEllipsis(
+                line.Text,
+                line.Kind switch
+                {
+                    ShoppingListDisplayLineKind.RecipeHeader => recipeLineMaxCharacters,
+                    ShoppingListDisplayLineKind.RecipeIngredient => indentedLineMaxCharacters,
+                    _ => standardLineMaxCharacters
+                })
+        })
+        .ToList();
+
+    if (visibleLines.Count > maxVisibleLines)
+    {
+        visibleLines = visibleLines.Take(maxVisibleLines).ToList();
+        visibleLines[^1] = new ShoppingListDisplayLine("...", ShoppingListDisplayLineKind.Truncation);
+    }
+
+    var document = new JsonTemplateDocument()
+        .Add(new JsonRotateCommand(tagType.GetJsonRotation(portrait: true)))
+        .Add(new JsonRoundedBoxCommand(0, 0, width - 1, height - 1, 10, OeplJsonColor.White, OeplJsonColor.Black, 2))
+        .Add(new JsonBoxCommand(padding, padding, width - (padding * 2), headerHeight, OeplJsonColor.Red))
+        .Add(new JsonTextCommand(width / 2, padding + 17, TruncateWithEllipsis(snapshot.Name, standardLineMaxCharacters - 1), font, OeplJsonColor.White, OeplJsonTextAlignment.Center))
+        .Add(new JsonTextCommand(padding, infoTop, $"{snapshot.Items.Count} offen", font, OeplJsonColor.Black))
+        .Add(new JsonLineCommand(padding, listTop - 8, width - padding, listTop - 8, OeplJsonColor.Black));
+
+    if (visibleLines.Count == 0)
+    {
+        document
+            .Add(new JsonTextCommand(padding, listTop, "Alles erledigt", font, OeplJsonColor.Black))
+            .Add(new JsonTextCommand(padding, listTop + 20, "Keine offenen Eintraege.", font, OeplJsonColor.Black));
+    }
+    else
+    {
+        for (var i = 0; i < visibleLines.Count; i++)
+        {
+            var y = listTop + (i * lineHeight);
+            var line = visibleLines[i];
+
+            switch (line.Kind)
+            {
+                case ShoppingListDisplayLineKind.RecipeHeader:
+                    document
+                        .Add(new JsonBoxCommand(padding, y + 3, 5, 5, OeplJsonColor.Red))
+                        .Add(new JsonTextCommand(padding + 12, y, line.Text, font, OeplJsonColor.Black));
+                    break;
+                case ShoppingListDisplayLineKind.RecipeIngredient:
+                    document
+                        .Add(new JsonLineCommand(padding + 10, y + 7, padding + 14, y + 7, OeplJsonColor.Black))
+                        .Add(new JsonTextCommand(padding + 18, y, line.Text, font, OeplJsonColor.Black));
+                    break;
+                case ShoppingListDisplayLineKind.Truncation:
+                    document.Add(new JsonTextCommand(padding, y, line.Text, font, OeplJsonColor.Red));
+                    break;
+                default:
+                    document
+                        .Add(new JsonBoxCommand(padding, y + 3, 4, 4, OeplJsonColor.Black))
+                        .Add(new JsonTextCommand(padding + 10, y, line.Text, font, OeplJsonColor.Black));
+                    break;
+            }
+        }
+    }
+
+    await client.UploadJsonTemplateAsync(tag.Mac, document, cancellationToken);
+}
+
+static async Task ShowMealPlanOnSchwarz2AsJsonAsync(
+    OpenEpaperLinkRoamingClient client,
+    OpenEpaperLinkTag tag,
+    OpenEpaperLinkTagType tagType,
+    MealPlanSnapshot snapshot,
+    CancellationToken cancellationToken)
+{
+    const string font = "fonts/bahnschrift20";
+    var width = tagType.GetRenderWidth();
+    var height = tagType.GetRenderHeight();
+    const int padding = 5;
+    const int tableTop = 9;
+    const int dayColumnWidth = 34;
+    var mealColumnsWidth = width - (padding * 2) - dayColumnWidth;
+    var breakfastColumnWidth = mealColumnsWidth / 3;
+    var lunchColumnWidth = mealColumnsWidth / 3;
+    var dinnerColumnWidth = mealColumnsWidth - breakfastColumnWidth - lunchColumnWidth;
+    var breakfastX = padding + dayColumnWidth;
+    var lunchX = breakfastX + breakfastColumnWidth;
+    var dinnerX = lunchX + lunchColumnWidth;
+    var rowHeight = Math.Max(10, (height - tableTop - padding) / (snapshot.Days.Count + 1));
+    var maxDayCharacters = Math.Max(4, (dayColumnWidth - 6) / 3);
+    var maxBreakfastCharacters = Math.Max(4, (breakfastColumnWidth - 6) / 3);
+    var maxLunchCharacters = Math.Max(4, (lunchColumnWidth - 6) / 3);
+    var maxDinnerCharacters = Math.Max(4, (dinnerColumnWidth - 6) / 3);
+    var tableBottom = Math.Min(height - padding, tableTop + ((snapshot.Days.Count + 1) * rowHeight));
+    var headerBaseline = tableTop + 10;
+
+    var document = new JsonTemplateDocument()
+        .Add(new JsonRotateCommand(tagType.GetJsonRotation()))
+        .Add(new JsonRoundedBoxCommand(0, 0, width - 1, height - 1, 10, OeplJsonColor.White, OeplJsonColor.Black, 2))
+        .Add(new JsonLineCommand(padding, tableTop - 3, width - padding, tableTop - 3, OeplJsonColor.Black))
+        .Add(new JsonLineCommand(breakfastX, tableTop - 2, breakfastX, tableBottom - 1, OeplJsonColor.Black))
+        .Add(new JsonLineCommand(lunchX, tableTop - 2, lunchX, tableBottom - 1, OeplJsonColor.Black))
+        .Add(new JsonLineCommand(dinnerX, tableTop - 2, dinnerX, tableBottom - 1, OeplJsonColor.Black))
+        .Add(new JsonTextCommand(padding + (dayColumnWidth / 2), headerBaseline, "Tag", font, OeplJsonColor.Black, OeplJsonTextAlignment.Center))
+        .Add(new JsonTextCommand(breakfastX + (breakfastColumnWidth / 2), headerBaseline, "Frueh", font, OeplJsonColor.Black, OeplJsonTextAlignment.Center))
+        .Add(new JsonTextCommand(lunchX + (lunchColumnWidth / 2), headerBaseline, "Mittag", font, OeplJsonColor.Black, OeplJsonTextAlignment.Center))
+        .Add(new JsonTextCommand(dinnerX + (dinnerColumnWidth / 2), headerBaseline, "Abend", font, OeplJsonColor.Black, OeplJsonTextAlignment.Center))
+        .Add(new JsonLineCommand(padding, tableTop + rowHeight - 1, width - padding, tableTop + rowHeight - 1, OeplJsonColor.Black));
+
+    for (var i = 0; i < snapshot.Days.Count; i++)
+    {
+        var day = snapshot.Days[i];
+        var y = tableTop + ((i + 1) * rowHeight);
+        var rowTop = y - 1;
+        var rowFillHeight = Math.Max(1, rowHeight - 1);
+        var textBaseline = y + 10;
+
+        if (day.HasMissingMainMeal)
+        {
+            document
+                .Add(new JsonBoxCommand(lunchX + 1, rowTop + 1, lunchColumnWidth - 1, rowFillHeight - 2, OeplJsonColor.Red))
+                .Add(new JsonBoxCommand(dinnerX + 1, rowTop + 1, dinnerColumnWidth - 1, rowFillHeight - 2, OeplJsonColor.Red));
+        }
+
+        document
+            .Add(new JsonTextCommand(padding + (dayColumnWidth / 2), textBaseline, TruncateWithEllipsis(day.Label, maxDayCharacters), font, day.HasMissingMainMeal ? OeplJsonColor.Red : OeplJsonColor.Black, OeplJsonTextAlignment.Center))
+            .Add(new JsonTextCommand(breakfastX + (breakfastColumnWidth / 2), textBaseline, TruncateWithEllipsis(day.Breakfast, maxBreakfastCharacters), font, OeplJsonColor.Black, OeplJsonTextAlignment.Center))
+            .Add(new JsonTextCommand(lunchX + (lunchColumnWidth / 2), textBaseline, TruncateWithEllipsis(day.Lunch, maxLunchCharacters), font, day.HasMissingMainMeal ? OeplJsonColor.White : OeplJsonColor.Black, OeplJsonTextAlignment.Center))
+            .Add(new JsonTextCommand(dinnerX + (dinnerColumnWidth / 2), textBaseline, TruncateWithEllipsis(day.Dinner, maxDinnerCharacters), font, day.HasMissingMainMeal ? OeplJsonColor.White : OeplJsonColor.Black, OeplJsonTextAlignment.Center));
+
+        if (i < snapshot.Days.Count - 1)
+        {
+            document.Add(new JsonLineCommand(padding, y + rowHeight - 1, width - padding, y + rowHeight - 1, OeplJsonColor.Black));
+        }
+    }
+
+    await client.UploadJsonTemplateAsync(tag.Mac, document, cancellationToken);
 }
 
 static IReadOnlyList<ShoppingListDisplayLine> BuildShoppingListDisplayLines(IReadOnlyList<ShoppingListEntry> items)
@@ -1179,6 +1383,12 @@ internal enum ShoppingListDisplayLineKind
     RecipeHeader,
     RecipeIngredient,
     Truncation
+}
+
+internal enum DisplayRenderMode
+{
+    Json,
+    Jpeg
 }
 
 internal sealed class OpenMeteoForecastResponse
