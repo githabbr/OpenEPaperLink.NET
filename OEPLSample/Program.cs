@@ -15,6 +15,7 @@ const string schwarz2Alias = "Schwarz2";
 const double forecastLatitude = 48.311944;
 const double forecastLongitude = 8.917778;
 const string forecastLocationName = "Bisingen, DE";
+const int mealPlanDayCount = 8;
 var shoppingListPollInterval = TimeSpan.FromMinutes(1);
 
 using var client = new OpenEpaperLinkRoamingClient(
@@ -78,6 +79,11 @@ if (testMode)
 }
 else
 {
+    var schwarz2 = await client.GetTagByAliasAsync(schwarz2Alias)
+        ?? throw new InvalidOperationException($"Could not resolve sample tag '{schwarz2Alias}'.");
+    var schwarz2Type = await client.GetTagTypeAsync(schwarz2.HardwareType)
+        ?? throw new InvalidOperationException($"No tag type metadata was found for {schwarz2Alias}.");
+
     var mealieToken = LoadRequiredSetting("MEALIE_TOKEN");
     using var mealieClient = CreateMealieClient(mealieToken);
     using var cancellationTokenSource = new CancellationTokenSource();
@@ -89,16 +95,26 @@ else
     };
 
     Console.WriteLine($"Starting Mealie sync for list '{supermarktShoppingListId}' to {schwarz1Alias} in portrait mode.");
-    Console.WriteLine("Only unchecked shopping-list items are shown. Press Ctrl+C to stop.");
+    Console.WriteLine($"Starting Mealie sync for the meal plan on {schwarz2Alias} for today plus the next {mealPlanDayCount - 1} days.");
+    Console.WriteLine("Only unchecked shopping-list items are shown on Schwarz1. Press Ctrl+C to stop.");
 
-    await RunShoppingListSyncLoopAsync(
-        mealieClient,
-        client,
-        schwarz1,
-        schwarz1Type,
-        supermarktShoppingListId,
-        shoppingListPollInterval,
-        cancellationTokenSource.Token);
+    await Task.WhenAll(
+        RunShoppingListSyncLoopAsync(
+            mealieClient,
+            client,
+            schwarz1,
+            schwarz1Type,
+            supermarktShoppingListId,
+            shoppingListPollInterval,
+            cancellationTokenSource.Token),
+        RunMealPlanSyncLoopAsync(
+            mealieClient,
+            client,
+            schwarz2,
+            schwarz2Type,
+            shoppingListPollInterval,
+            mealPlanDayCount,
+            cancellationTokenSource.Token));
 
 }
 
@@ -317,6 +333,55 @@ static async Task RunShoppingListSyncLoopAsync(
     }
 }
 
+static async Task RunMealPlanSyncLoopAsync(
+    HttpClient mealieClient,
+    OpenEpaperLinkRoamingClient oeplClient,
+    OpenEpaperLinkTag tag,
+    OpenEpaperLinkTagType tagType,
+    TimeSpan pollInterval,
+    int dayCount,
+    CancellationToken cancellationToken)
+{
+    string? latestKnownState = null;
+
+    while (!cancellationToken.IsCancellationRequested)
+    {
+        try
+        {
+            var startDate = DateOnly.FromDateTime(DateTime.Now);
+            var snapshot = await GetMealPlanSnapshotAsync(mealieClient, startDate, dayCount, cancellationToken);
+
+            if (string.Equals(snapshot.StateSignature, latestKnownState, StringComparison.Ordinal))
+            {
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Meal plan unchanged ({snapshot.TotalMealCount} planned meal(s)).");
+            }
+            else
+            {
+                await ShowMealPlanOnSchwarz2Async(oeplClient, tag, tagType, snapshot, cancellationToken);
+                latestKnownState = snapshot.StateSignature;
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Synced {snapshot.TotalMealCount} planned meal(s) from {snapshot.StartDate:yyyy-MM-dd} to {snapshot.EndDate:yyyy-MM-dd} to {tag.Alias ?? tag.Mac}.");
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            break;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Meal plan sync failed: {ex.Message}");
+        }
+
+        try
+        {
+            await Task.Delay(pollInterval, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            break;
+        }
+    }
+}
+
 static async Task<ShoppingListSnapshot> GetShoppingListSnapshotAsync(HttpClient mealieClient, string shoppingListId, CancellationToken cancellationToken)
 {
     using var response = await mealieClient.GetAsync($"api/households/shopping/lists/{shoppingListId}", cancellationToken);
@@ -350,6 +415,69 @@ static async Task<ShoppingListSnapshot> GetShoppingListSnapshotAsync(HttpClient 
         shoppingList.Name?.Trim() is { Length: > 0 } name ? name : "Shopping list",
         items,
         string.Join('\n', items.Select(item => $"{item.RecipeSortKey}|{item.IngredientSortKey}|{item.DisplayText}")));
+}
+
+static async Task<MealPlanSnapshot> GetMealPlanSnapshotAsync(
+    HttpClient mealieClient,
+    DateOnly startDate,
+    int dayCount,
+    CancellationToken cancellationToken)
+{
+    var endDate = startDate.AddDays(dayCount - 1);
+    var requestUri =
+        $"api/households/mealplans?page=1&perPage=-1&start_date={startDate:yyyy-MM-dd}&end_date={endDate:yyyy-MM-dd}";
+
+    using var response = await mealieClient.GetAsync(requestUri, cancellationToken);
+    response.EnsureSuccessStatusCode();
+
+    await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+    var mealPlan = await JsonSerializer.DeserializeAsync<MealieMealPlanResponse>(stream, cancellationToken: cancellationToken)
+        ?? throw new InvalidOperationException("Mealie returned an empty meal-plan payload.");
+
+    var entriesByDate = new Dictionary<DateOnly, Dictionary<string, List<string>>>();
+    foreach (var item in mealPlan.Items ?? [])
+    {
+        if (!TryCreateMealPlanEntry(item, out var date, out var mealType, out var recipeName))
+        {
+            continue;
+        }
+
+        if (!entriesByDate.TryGetValue(date, out var mealsByType))
+        {
+            mealsByType = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            entriesByDate[date] = mealsByType;
+        }
+
+        if (!mealsByType.TryGetValue(mealType, out var recipes))
+        {
+            recipes = [];
+            mealsByType[mealType] = recipes;
+        }
+
+        recipes.Add(recipeName);
+    }
+
+    var days = Enumerable.Range(0, dayCount)
+        .Select(offset =>
+        {
+            var date = startDate.AddDays(offset);
+            entriesByDate.TryGetValue(date, out var mealsByType);
+
+            return new MealPlanDay(
+                date,
+                BuildMealPlanDayLabel(date),
+                FormatMealPlanCellText(mealsByType, "breakfast"),
+                FormatMealPlanCellText(mealsByType, "lunch"),
+                FormatMealPlanCellText(mealsByType, "dinner"));
+        })
+        .ToList();
+
+    return new MealPlanSnapshot(
+        startDate,
+        endDate,
+        days,
+        days.Sum(day => day.PlannedMealCount),
+        string.Join('\n', days.Select(day => $"{day.Date:yyyy-MM-dd}|{day.Breakfast}|{day.Lunch}|{day.Dinner}")));
 }
 
 static ShoppingListEntry CreateShoppingListEntry(
@@ -396,6 +524,12 @@ static string BuildIngredientDisplayText(MealieShoppingListItem item)
 
     var unit = NormalizeWhitespace(item.Unit?.Abbreviation)
         ?? NormalizeWhitespace(item.Unit?.Name);
+    if(unit == "Gramm")
+        unit = "g";
+    else if(unit == "Kilogramm")
+        unit = "kg";
+
+
     if (!string.IsNullOrWhiteSpace(unit))
     {
         parts.Add(unit);
@@ -456,6 +590,79 @@ static string? NormalizeWhitespace(string? value)
 
     return string.Join(' ', value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 }
+
+static bool TryCreateMealPlanEntry(
+    MealieMealPlanItem item,
+    out DateOnly date,
+    out string mealType,
+    out string recipeName)
+{
+    date = default;
+    mealType = string.Empty;
+    recipeName = string.Empty;
+
+    if (string.IsNullOrWhiteSpace(item.Date) ||
+        !DateOnly.TryParseExact(item.Date, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out date))
+    {
+        return false;
+    }
+
+    mealType = NormalizeMealPlanEntryType(item.EntryType) ?? string.Empty;
+    if (mealType.Length == 0)
+    {
+        return false;
+    }
+
+    recipeName = BuildMealPlanRecipeName(item) ?? string.Empty;
+    return recipeName.Length > 0;
+}
+
+static string? NormalizeMealPlanEntryType(string? value) =>
+    NormalizeWhitespace(value)?.ToLowerInvariant() switch
+    {
+        "breakfast" => "breakfast",
+        "lunch" => "lunch",
+        "dinner" => "dinner",
+        _ => null
+    };
+
+static string? BuildMealPlanRecipeName(MealieMealPlanItem item) =>
+    NormalizeWhitespace(item.Recipe?.Name) ??
+    NormalizeWhitespace(item.Title) ??
+    NormalizeWhitespace(item.Text);
+
+static string FormatMealPlanCellText(
+    IReadOnlyDictionary<string, List<string>>? mealsByType,
+    string mealType)
+{
+    if (mealsByType is null || !mealsByType.TryGetValue(mealType, out var values) || values.Count == 0)
+    {
+        return "-";
+    }
+
+    return string.Join(
+        " + ",
+        values
+            .Select(NormalizeWhitespace)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.CurrentCultureIgnoreCase)!);
+}
+
+static string BuildMealPlanDayLabel(DateOnly date) =>
+    $"{GetGermanWeekdayAbbreviation(date)} {date:dd}";
+
+static string GetGermanWeekdayAbbreviation(DateOnly date) =>
+    date.DayOfWeek switch
+    {
+        DayOfWeek.Monday => "Mo",
+        DayOfWeek.Tuesday => "Di",
+        DayOfWeek.Wednesday => "Mi",
+        DayOfWeek.Thursday => "Do",
+        DayOfWeek.Friday => "Fr",
+        DayOfWeek.Saturday => "Sa",
+        DayOfWeek.Sunday => "So",
+        _ => "--"
+    };
 
 static async Task ShowShoppingListOnSchwarz1Async(
     OpenEpaperLinkRoamingClient client,
@@ -555,6 +762,85 @@ static async Task ShowShoppingListOnSchwarz1Async(
                         .DrawTextFromFile(line.Text, padding + 10, y, itemFontSize, OeplBundledFonts.SansRegular, "black");
                     break;
             }
+        }
+    }
+
+    canvas.QuantizeToDisplayPalette();
+
+    await client.UploadRenderedImageAsync(
+        tag.Mac,
+        canvas,
+        new OpenEpaperLinkImageUploadOptions(
+            OpenEpaperLinkDitherMode.None,
+            90,
+            22),
+        cancellationToken);
+}
+
+static async Task ShowMealPlanOnSchwarz2Async(
+    OpenEpaperLinkRoamingClient client,
+    OpenEpaperLinkTag tag,
+    OpenEpaperLinkTagType tagType,
+    MealPlanSnapshot snapshot,
+    CancellationToken cancellationToken)
+{
+    using var canvas = new OeplCanvas(tagType, accentColor: OeplAccentColor.Red);
+    var width = canvas.Width;
+    var height = canvas.Height;
+    const int padding = 5;
+    const int tableTop = 9;
+    const float tableHeaderFontSize = 11;
+    const float rowFontSize = 11;
+    const int dayColumnWidth = 34;
+    var mealColumnsWidth = width - (padding * 2) - dayColumnWidth;
+    var breakfastColumnWidth = mealColumnsWidth / 3;
+    var lunchColumnWidth = mealColumnsWidth / 3;
+    var dinnerColumnWidth = mealColumnsWidth - breakfastColumnWidth - lunchColumnWidth;
+    var breakfastX = padding + dayColumnWidth;
+    var lunchX = breakfastX + breakfastColumnWidth;
+    var dinnerX = lunchX + lunchColumnWidth;
+    var rowHeight = Math.Max(10, (height - tableTop - padding) / (snapshot.Days.Count + 1));
+    var maxDayCharacters = Math.Max(4, (dayColumnWidth - 6) / 3);
+    var maxBreakfastCharacters = Math.Max(4, (breakfastColumnWidth - 6) / 3);
+    var maxLunchCharacters = Math.Max(4, (lunchColumnWidth - 6) / 3);
+    var maxDinnerCharacters = Math.Max(4, (dinnerColumnWidth - 6) / 3);
+    var tableBottom = Math.Min(height - padding, tableTop + ((snapshot.Days.Count + 1) * rowHeight));
+
+    canvas
+        .DrawRoundedRectangle(0, 0, width - 1, height - 1, 10, fill: "white", outline: "black", outlineWidth: 2)
+        .DrawLine(padding, tableTop - 3, width - padding, tableTop - 3, "black", 1)
+        .DrawLine(breakfastX, tableTop - 2, breakfastX, tableBottom - 1, "black", 1)
+        .DrawLine(lunchX, tableTop - 2, lunchX, tableBottom - 1, "black", 1)
+        .DrawLine(dinnerX, tableTop - 2, dinnerX, tableBottom - 1, "black", 1)
+        .DrawTextFromFile("Tag", padding + 2, tableTop, tableHeaderFontSize, OeplBundledFonts.SansBold, "black")
+        .DrawTextFromFile("Frühstück", breakfastX + 2, tableTop, tableHeaderFontSize, OeplBundledFonts.SansBold, "black")
+        .DrawTextFromFile("Mittag", lunchX + 2, tableTop, tableHeaderFontSize, OeplBundledFonts.SansBold, "black")
+        .DrawTextFromFile("Abends", dinnerX + 2, tableTop, tableHeaderFontSize, OeplBundledFonts.SansBold, "black")
+        .DrawLine(padding, tableTop + rowHeight - 1, width - padding, tableTop + rowHeight - 1, "black", 1);
+
+    for (var i = 0; i < snapshot.Days.Count; i++)
+    {
+        var day = snapshot.Days[i];
+        var y = tableTop + ((i + 1) * rowHeight);
+        var rowTop = y - 1;
+        var rowFillHeight = Math.Max(1, rowHeight - 1);
+
+        if (day.HasMissingMainMeal)
+        {
+            canvas
+                .DrawRectangle(lunchX + 1, rowTop + 1, lunchColumnWidth - 1, rowFillHeight - 2, fill: "red", outline: "red", outlineWidth: 1)
+                .DrawRectangle(dinnerX + 1, rowTop + 1, dinnerColumnWidth - 1, rowFillHeight - 2, fill: "red", outline: "red", outlineWidth: 1);
+        }
+
+        canvas
+            .DrawTextFromFile(TruncateWithEllipsis(day.Label, maxDayCharacters), padding + 2, y, rowFontSize, OeplBundledFonts.SansBold, day.HasMissingMainMeal ? "red" : "black")
+            .DrawTextFromFile(TruncateWithEllipsis(day.Breakfast, maxBreakfastCharacters), breakfastX + 2, y, rowFontSize, OeplBundledFonts.SansRegular, "black")
+            .DrawTextFromFile(TruncateWithEllipsis(day.Lunch, maxLunchCharacters), lunchX + 2, y, rowFontSize, OeplBundledFonts.SansRegular, day.HasMissingMainMeal ? "white" : "black")
+            .DrawTextFromFile(TruncateWithEllipsis(day.Dinner, maxDinnerCharacters), dinnerX + 2, y, rowFontSize, OeplBundledFonts.SansRegular, day.HasMissingMainMeal ? "white" : "black");
+
+        if (i < snapshot.Days.Count - 1)
+        {
+            canvas.DrawLine(padding, y + rowHeight - 1, width - padding, y + rowHeight - 1, "black", 1);
         }
     }
 
@@ -847,6 +1133,28 @@ internal sealed record ShoppingListSnapshot(
     IReadOnlyList<ShoppingListEntry> Items,
     string StateSignature);
 
+internal sealed record MealPlanSnapshot(
+    DateOnly StartDate,
+    DateOnly EndDate,
+    IReadOnlyList<MealPlanDay> Days,
+    int TotalMealCount,
+    string StateSignature);
+
+internal sealed record MealPlanDay(
+    DateOnly Date,
+    string Label,
+    string Breakfast,
+    string Lunch,
+    string Dinner)
+{
+    public bool HasMissingMainMeal => Lunch == "-" && Dinner == "-";
+
+    public int PlannedMealCount =>
+        (Breakfast == "-" ? 0 : 1) +
+        (Lunch == "-" ? 0 : 1) +
+        (Dinner == "-" ? 0 : 1);
+}
+
 internal sealed record ShoppingListEntry(
     string IngredientDisplayText,
     string IngredientSortKey,
@@ -910,6 +1218,30 @@ internal sealed class MealieShoppingListResponse
 
     [JsonPropertyName("recipeReferences")]
     public List<MealieShoppingListRecipeReference>? RecipeReferences { get; init; }
+}
+
+internal sealed class MealieMealPlanResponse
+{
+    [JsonPropertyName("items")]
+    public List<MealieMealPlanItem>? Items { get; init; }
+}
+
+internal sealed class MealieMealPlanItem
+{
+    [JsonPropertyName("date")]
+    public string? Date { get; init; }
+
+    [JsonPropertyName("entryType")]
+    public string? EntryType { get; init; }
+
+    [JsonPropertyName("title")]
+    public string? Title { get; init; }
+
+    [JsonPropertyName("text")]
+    public string? Text { get; init; }
+
+    [JsonPropertyName("recipe")]
+    public MealieRecipeSummary? Recipe { get; init; }
 }
 
 internal sealed class MealieShoppingListItem
