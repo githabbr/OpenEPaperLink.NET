@@ -1,15 +1,21 @@
 using OEPLLib;
 using SixLabors.ImageSharp;
 using System.Globalization;
+using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
+var testMode = false;
+
 const string accessPointAddress = "http://192.168.2.178";
+const string mealieBaseAddress = "https://mealie.turino.de";
+const string supermarktShoppingListId = "f344e66e-6115-4336-a8c5-38bb49ec6515";
 const string schwarz1Alias = "Schwarz1";
 const string schwarz2Alias = "Schwarz2";
 const double forecastLatitude = 48.311944;
 const double forecastLongitude = 8.917778;
 const string forecastLocationName = "Bisingen, DE";
+var shoppingListPollInterval = TimeSpan.FromMinutes(1);
 
 using var client = new OpenEpaperLinkRoamingClient(
 [
@@ -19,58 +25,82 @@ client.DebugLog = message => Console.WriteLine(message);
 
 
 var schwarz1 = await client.GetTagByAliasAsync(schwarz1Alias);
-var schwarz2 = await client.GetTagByAliasAsync(schwarz2Alias);
-
-if (schwarz1 is null || schwarz2 is null)
+if (schwarz1 is null)
 {
-    throw new InvalidOperationException($"Could not resolve both sample tags by alias. Found Schwarz1: {schwarz1 is not null}, Schwarz2: {schwarz2 is not null}.");
+    throw new InvalidOperationException($"Could not resolve sample tag '{schwarz1Alias}'.");
 }
 
 var schwarz1Type = await client.GetTagTypeAsync(schwarz1.HardwareType)
     ?? throw new InvalidOperationException($"No tag type metadata was found for {schwarz1Alias}.");
-var schwarz2Type = await client.GetTagTypeAsync(schwarz2.HardwareType)
-    ?? throw new InvalidOperationException($"No tag type metadata was found for {schwarz2Alias}.");
 
 
-await RunStepAsync("Portrait JPEG demo on Schwarz1", () => ShowPortraitJpegDemoOnSchwarz1Async(client, schwarz1, schwarz1Type));
-Console.WriteLine($"Updated {schwarz1Alias} ({schwarz1.Mac}) with the portrait JPEG example.");
+if (testMode)
+{
+    var schwarz2 = await client.GetTagByAliasAsync(schwarz2Alias)
+        ?? throw new InvalidOperationException($"Could not resolve sample tag '{schwarz2Alias}'.");
+    var schwarz2Type = await client.GetTagTypeAsync(schwarz2.HardwareType)
+        ?? throw new InvalidOperationException($"No tag type metadata was found for {schwarz2Alias}.");
 
-await RunStepAsync("Portrait JSON demo on Schwarz2", () => ShowPortraitJsonDemoOnSchwarz2Async(client, schwarz2, schwarz2Type));
-Console.WriteLine($"Updated {schwarz2Alias} ({schwarz2.Mac}) with the portrait JSON example.");
-await PrintStateAsync(client, "State after portrait update round");
+    await RunStepAsync("Portrait JPEG demo on Schwarz1", () => ShowPortraitJpegDemoOnSchwarz1Async(client, schwarz1, schwarz1Type));
+    Console.WriteLine($"Updated {schwarz1Alias} ({schwarz1.Mac}) with the portrait JPEG example.");
 
-Console.WriteLine("Waiting another 1 minute after the portrait demo round...");
-await Task.Delay(TimeSpan.FromMinutes(1));
+    await RunStepAsync("Portrait JSON demo on Schwarz2", () => ShowPortraitJsonDemoOnSchwarz2Async(client, schwarz2, schwarz2Type));
+    Console.WriteLine($"Updated {schwarz2Alias} ({schwarz2.Mac}) with the portrait JSON example.");
+    await PrintStateAsync(client, "State after portrait update round");
 
-return;
+    Console.WriteLine("Waiting another 1 minute after the portrait demo round...");
+    await Task.Delay(TimeSpan.FromMinutes(1));
 
+    await RunStepAsync("Second JPEG demo on Schwarz1", () => ShowJpegDemoOnSchwarz1Async(client, schwarz1, schwarz1Type));
+    Console.WriteLine($"Updated {schwarz1Alias} ({schwarz1.Mac}) with JPEG rendering again.");
 
-await RunStepAsync("Second JPEG demo on Schwarz1", () => ShowJpegDemoOnSchwarz1Async(client, schwarz1, schwarz1Type));
-Console.WriteLine($"Updated {schwarz1Alias} ({schwarz1.Mac}) with JPEG rendering again.");
+    await RunStepAsync("JSON demo on Schwarz2", () => ShowJsonDemoOnSchwarz2Async(client, schwarz2, schwarz2Type));
+    Console.WriteLine($"Updated {schwarz2Alias} ({schwarz2.Mac}) with native JSON template rendering.");
+    await PrintStateAsync(client, "State after first update round");
 
-await RunStepAsync("JSON demo on Schwarz2", () => ShowJsonDemoOnSchwarz2Async(client, schwarz2, schwarz2Type));
-Console.WriteLine($"Updated {schwarz2Alias} ({schwarz2.Mac}) with native JSON template rendering.");
-await PrintStateAsync(client, "State after first update round");
+    Console.WriteLine();
+    Console.WriteLine("Waiting 1 minute before updating again using the known roaming state...");
+    await Task.Delay(TimeSpan.FromMinutes(1));
+    await RunStepAsync("Weather forecast demo on Schwarz1", () => ShowWeatherForecastOnSchwarz1Async(client, schwarz1, schwarz1Type));
+    Console.WriteLine($"Updated {schwarz1Alias} ({schwarz1.Mac}) with tomorrow's weather forecast.");
 
-Console.WriteLine();
-Console.WriteLine("Waiting 1 minute before updating again using the known roaming state...");
-await Task.Delay(TimeSpan.FromMinutes(1));
-await RunStepAsync("Weather forecast demo on Schwarz1", () => ShowWeatherForecastOnSchwarz1Async(client, schwarz1, schwarz1Type));
-Console.WriteLine($"Updated {schwarz1Alias} ({schwarz1.Mac}) with tomorrow's weather forecast.");
+    // temporarily disabled
+    await RunStepAsync("Second warehouse logistics JPEG demo on Schwarz2", () => ShowWarehouseLogisticsJpegOnSchwarz2Async(client, schwarz2, schwarz2Type));
+    Console.WriteLine($"Updated {schwarz2Alias} ({schwarz2.Mac}) with the warehouse logistics JPEG example again.");
+    await PrintStateAsync(client, "State after second update round");
 
-/* temporarily disabled
-await RunStepAsync("Second warehouse logistics JPEG demo on Schwarz2", () => ShowWarehouseLogisticsJpegOnSchwarz2Async(client, schwarz2, schwarz2Type));
-Console.WriteLine($"Updated {schwarz2Alias} ({schwarz2.Mac}) with the warehouse logistics JPEG example again.");
-await PrintStateAsync(client, "State after second update round");
-*
+    Console.WriteLine();
+    Console.WriteLine("Waiting another 1 minute before the final JSON warehouse logistics update...");
+    await Task.Delay(TimeSpan.FromMinutes(1));
+    await RunStepAsync("Warehouse logistics JSON demo on Schwarz2", () => ShowWarehouseLogisticsJsonOnSchwarz2Async(client, schwarz2, schwarz2Type));
+    Console.WriteLine($"Updated {schwarz2Alias} ({schwarz2.Mac}) with the warehouse logistics JSON example.");
+    await PrintStateAsync(client, "State after final JSON update");
+}
+else
+{
+    var mealieToken = LoadRequiredSetting("MEALIE_TOKEN");
+    using var mealieClient = CreateMealieClient(mealieToken);
+    using var cancellationTokenSource = new CancellationTokenSource();
 
-Console.WriteLine();
-Console.WriteLine("Waiting another 1 minute before the final JSON warehouse logistics update...");
-await Task.Delay(TimeSpan.FromMinutes(1));
-await RunStepAsync("Warehouse logistics JSON demo on Schwarz2", () => ShowWarehouseLogisticsJsonOnSchwarz2Async(client, schwarz2, schwarz2Type));
-Console.WriteLine($"Updated {schwarz2Alias} ({schwarz2.Mac}) with the warehouse logistics JSON example.");
-await PrintStateAsync(client, "State after final JSON update");
-*/
+    Console.CancelKeyPress += (_, eventArgs) =>
+    {
+        eventArgs.Cancel = true;
+        cancellationTokenSource.Cancel();
+    };
+
+    Console.WriteLine($"Starting Mealie sync for list '{supermarktShoppingListId}' to {schwarz1Alias} in portrait mode.");
+    Console.WriteLine("Only unchecked shopping-list items are shown. Press Ctrl+C to stop.");
+
+    await RunShoppingListSyncLoopAsync(
+        mealieClient,
+        client,
+        schwarz1,
+        schwarz1Type,
+        supermarktShoppingListId,
+        shoppingListPollInterval,
+        cancellationTokenSource.Token);
+
+}
 
 Console.WriteLine();
 
@@ -145,6 +175,436 @@ static async Task ShowJpegDemoOnSchwarz1Async(OpenEpaperLinkRoamingClient client
 
 static async Task ShowPortraitJpegDemoOnSchwarz1Async(OpenEpaperLinkRoamingClient client, OpenEpaperLinkTag tag, OpenEpaperLinkTagType tagType) =>
     await ShowJpegDemoOnSchwarz1CoreAsync(client, tag, tagType, portrait: true);
+
+static HttpClient CreateMealieClient(string mealieToken)
+{
+    var httpClient = new HttpClient
+    {
+        BaseAddress = new Uri(mealieBaseAddress.TrimEnd('/') + "/", UriKind.Absolute)
+    };
+    httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", mealieToken);
+    httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+    return httpClient;
+}
+
+static string LoadRequiredSetting(string key)
+{
+    var value = Environment.GetEnvironmentVariable(key);
+    if (!string.IsNullOrWhiteSpace(value))
+    {
+        return value.Trim();
+    }
+
+    foreach (var envFilePath in GetCandidateEnvFilePaths())
+    {
+        var configuredValue = TryReadEnvValue(envFilePath, key);
+        if (!string.IsNullOrWhiteSpace(configuredValue))
+        {
+            return configuredValue;
+        }
+    }
+
+    throw new InvalidOperationException(
+        $"Missing required setting '{key}'. Set it as an environment variable or add it to OEPLSample/.env.");
+}
+
+static IEnumerable<string> GetCandidateEnvFilePaths()
+{
+    var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    foreach (var startPath in new[] { Directory.GetCurrentDirectory(), AppContext.BaseDirectory })
+    {
+        var directory = new DirectoryInfo(startPath);
+        while (directory is not null)
+        {
+            var candidatePath = Path.Combine(directory.FullName, ".env");
+            if (seenPaths.Add(candidatePath))
+            {
+                yield return candidatePath;
+            }
+
+            directory = directory.Parent;
+        }
+    }
+}
+
+static string? TryReadEnvValue(string envFilePath, string key)
+{
+    if (!File.Exists(envFilePath))
+    {
+        return null;
+    }
+
+    foreach (var rawLine in File.ReadLines(envFilePath))
+    {
+        var line = rawLine.Trim();
+        if (line.Length == 0 || line.StartsWith('#'))
+        {
+            continue;
+        }
+
+        var separatorIndex = line.IndexOf('=');
+        if (separatorIndex <= 0)
+        {
+            continue;
+        }
+
+        var candidateKey = line[..separatorIndex].Trim();
+        if (!string.Equals(candidateKey, key, StringComparison.OrdinalIgnoreCase))
+        {
+            continue;
+        }
+
+        var value = line[(separatorIndex + 1)..].Trim();
+        if (value.Length >= 2 &&
+            ((value.StartsWith('"') && value.EndsWith('"')) ||
+             (value.StartsWith('\'') && value.EndsWith('\''))))
+        {
+            value = value[1..^1];
+        }
+
+        return value;
+    }
+
+    return null;
+}
+
+static async Task RunShoppingListSyncLoopAsync(
+    HttpClient mealieClient,
+    OpenEpaperLinkRoamingClient oeplClient,
+    OpenEpaperLinkTag tag,
+    OpenEpaperLinkTagType tagType,
+    string shoppingListId,
+    TimeSpan pollInterval,
+    CancellationToken cancellationToken)
+{
+    string? latestKnownState = null;
+
+    while (!cancellationToken.IsCancellationRequested)
+    {
+        try
+        {
+            var snapshot = await GetShoppingListSnapshotAsync(mealieClient, shoppingListId, cancellationToken);
+
+            if (string.Equals(snapshot.StateSignature, latestKnownState, StringComparison.Ordinal))
+            {
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Shopping list unchanged ({snapshot.Items.Count} open item(s)).");
+            }
+            else
+            {
+                await ShowShoppingListOnSchwarz1Async(oeplClient, tag, tagType, snapshot, cancellationToken);
+                latestKnownState = snapshot.StateSignature;
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Synced {snapshot.Items.Count} open item(s) from '{snapshot.Name}' to {tag.Alias ?? tag.Mac}.");
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            break;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Shopping list sync failed: {ex.Message}");
+        }
+
+        try
+        {
+            await Task.Delay(pollInterval, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            break;
+        }
+    }
+}
+
+static async Task<ShoppingListSnapshot> GetShoppingListSnapshotAsync(HttpClient mealieClient, string shoppingListId, CancellationToken cancellationToken)
+{
+    using var response = await mealieClient.GetAsync($"api/households/shopping/lists/{shoppingListId}", cancellationToken);
+    response.EnsureSuccessStatusCode();
+
+    await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+    var shoppingList = await JsonSerializer.DeserializeAsync<MealieShoppingListResponse>(stream, cancellationToken: cancellationToken)
+        ?? throw new InvalidOperationException("Mealie returned an empty shopping-list payload.");
+
+    var recipeNamesById = (shoppingList.RecipeReferences ?? [])
+        .Where(reference => !string.IsNullOrWhiteSpace(reference.RecipeId))
+        .GroupBy(reference => reference.RecipeId!, StringComparer.OrdinalIgnoreCase)
+        .ToDictionary(
+            group => group.Key,
+            group => NormalizeWhitespace(group
+                .Select(reference => reference.Recipe?.Name)
+                .FirstOrDefault(name => !string.IsNullOrWhiteSpace(name))),
+            StringComparer.OrdinalIgnoreCase);
+
+    var items = (shoppingList.ListItems ?? [])
+        .Where(item => !item.Checked)
+        .Select(item => CreateShoppingListEntry(item, recipeNamesById))
+        .Where(entry => !string.IsNullOrWhiteSpace(entry.DisplayText))
+        .OrderBy(entry => entry.HasRecipe ? 1 : 0)
+        .ThenBy(entry => entry.RecipeSortKey, StringComparer.CurrentCultureIgnoreCase)
+        .ThenBy(entry => entry.IngredientSortKey, StringComparer.CurrentCultureIgnoreCase)
+        .ThenBy(entry => entry.DisplayText, StringComparer.CurrentCultureIgnoreCase)
+        .ToList();
+
+    return new ShoppingListSnapshot(
+        shoppingList.Name?.Trim() is { Length: > 0 } name ? name : "Shopping list",
+        items,
+        string.Join('\n', items.Select(item => $"{item.RecipeSortKey}|{item.IngredientSortKey}|{item.DisplayText}")));
+}
+
+static ShoppingListEntry CreateShoppingListEntry(
+    MealieShoppingListItem item,
+    IReadOnlyDictionary<string, string?> recipeNamesById)
+{
+    var display = BuildIngredientDisplayText(item);
+    if (string.IsNullOrWhiteSpace(display))
+    {
+        return new ShoppingListEntry(string.Empty, string.Empty, string.Empty);
+    }
+
+    var recipeNames = GetRecipeNames(item, recipeNamesById);
+    var recipeLabel = recipeNames.Count == 0
+        ? null
+        : string.Join(" + ", recipeNames);
+
+    var ingredientSortKey =
+        NormalizeWhitespace(item.Food?.Name) ??
+        NormalizeWhitespace(item.Display) ??
+        NormalizeWhitespace(item.Note) ??
+        display;
+
+    return new ShoppingListEntry(
+        display,
+        ingredientSortKey,
+        recipeLabel);
+}
+
+static string BuildIngredientDisplayText(MealieShoppingListItem item)
+{
+    var display = NormalizeWhitespace(item.Display);
+    if (!string.IsNullOrWhiteSpace(display))
+    {
+        return display;
+    }
+
+    var parts = new List<string>();
+
+    if (item.Quantity is > 0)
+    {
+        parts.Add(item.Quantity.Value.ToString("0.##", CultureInfo.InvariantCulture));
+    }
+
+    var unit = NormalizeWhitespace(item.Unit?.Abbreviation)
+        ?? NormalizeWhitespace(item.Unit?.Name);
+    if (!string.IsNullOrWhiteSpace(unit))
+    {
+        parts.Add(unit);
+    }
+
+    var food = NormalizeWhitespace(item.Food?.Name);
+    if (!string.IsNullOrWhiteSpace(food))
+    {
+        parts.Add(food);
+    }
+
+    var note = NormalizeWhitespace(item.Note);
+    if (!string.IsNullOrWhiteSpace(note))
+    {
+        parts.Add(note);
+    }
+
+    return string.Join(' ', parts);
+}
+
+static IReadOnlyList<string> GetRecipeNames(
+    MealieShoppingListItem item,
+    IReadOnlyDictionary<string, string?> recipeNamesById)
+{
+    var names = new HashSet<string>(StringComparer.CurrentCultureIgnoreCase);
+
+    var referencedRecipeName = NormalizeWhitespace(item.ReferencedRecipe?.Name);
+    if (!string.IsNullOrWhiteSpace(referencedRecipeName))
+    {
+        names.Add(referencedRecipeName);
+    }
+
+    foreach (var recipeReference in item.RecipeReferences ?? [])
+    {
+        var recipeName =
+            NormalizeWhitespace(recipeReference.Recipe?.Name) ??
+            (recipeReference.RecipeId is { Length: > 0 } recipeId && recipeNamesById.TryGetValue(recipeId, out var mappedName)
+                ? NormalizeWhitespace(mappedName)
+                : null);
+
+        if (!string.IsNullOrWhiteSpace(recipeName))
+        {
+            names.Add(recipeName);
+        }
+    }
+
+    return names
+        .OrderBy(name => name, StringComparer.CurrentCultureIgnoreCase)
+        .ToList();
+}
+
+static string? NormalizeWhitespace(string? value)
+{
+    if (string.IsNullOrWhiteSpace(value))
+    {
+        return null;
+    }
+
+    return string.Join(' ', value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+}
+
+static async Task ShowShoppingListOnSchwarz1Async(
+    OpenEpaperLinkRoamingClient client,
+    OpenEpaperLinkTag tag,
+    OpenEpaperLinkTagType tagType,
+    ShoppingListSnapshot snapshot,
+    CancellationToken cancellationToken)
+{
+    using var canvas = new OeplCanvas(tagType, portrait: true, OeplAccentColor.Red);
+    var width = canvas.Width;
+    var height = canvas.Height;
+    const int padding = 5;
+    const int headerHeight = 24;
+    const int infoTop = 30;
+    const int listTop = 50;
+    const int footerHeight = 14;
+    const int lineHeight = 15;
+    const float titleFontSize = 13;
+    const float infoFontSize = 11;
+    const float itemFontSize = 11;
+    var availableListHeight = height - listTop - footerHeight - padding;
+    var maxVisibleLines = Math.Max(1, availableListHeight / lineHeight);
+    var standardLineMaxCharacters = Math.Max(12, (width - 28) / 6);
+    var recipeLineMaxCharacters = Math.Max(10, (width - 26) / 6);
+    var indentedLineMaxCharacters = Math.Max(8, (width - 42) / 6);
+
+    var visibleLines = BuildShoppingListDisplayLines(snapshot.Items)
+        .Select(line => line with
+        {
+            Text = TruncateWithEllipsis(
+                line.Text,
+                line.Kind switch
+                {
+                    ShoppingListDisplayLineKind.RecipeHeader => recipeLineMaxCharacters,
+                    ShoppingListDisplayLineKind.RecipeIngredient => indentedLineMaxCharacters,
+                    _ => standardLineMaxCharacters
+                })
+        })
+        .ToList();
+
+    if (visibleLines.Count > maxVisibleLines)
+    {
+        visibleLines = visibleLines.Take(maxVisibleLines).ToList();
+        visibleLines[^1] = new ShoppingListDisplayLine("...", ShoppingListDisplayLineKind.Truncation);
+    }
+
+    canvas
+        .DrawRoundedRectangle(0, 0, width - 1, height - 1, 10, fill: "white", outline: "black", outlineWidth: 2)
+        .DrawRectangle(padding, padding, width - (padding * 2), headerHeight, fill: "red", outline: "red", outlineWidth: 1)
+        .DrawTextFromFile(TruncateWithEllipsis(snapshot.Name, standardLineMaxCharacters - 1), padding + 5, padding + 3, titleFontSize, OeplBundledFonts.SansBold, "white")
+        .DrawTextFromFile($"{snapshot.Items.Count} offen", padding, infoTop, infoFontSize, OeplBundledFonts.SansBold, "black")
+        .DrawLine(padding, listTop - 8, width - padding, listTop - 8, "black", 2);
+
+    if (visibleLines.Count == 0)
+    {
+        canvas
+            .DrawTextFromFile("Alles erledigt", padding, listTop, 14, OeplBundledFonts.SansBold, "black")
+            .DrawTextFromFile("Keine offenen Einträge.", padding, listTop + 20, itemFontSize, OeplBundledFonts.SansRegular, "black");
+    }
+    else
+    {
+        for (var i = 0; i < visibleLines.Count; i++)
+        {
+            var y = listTop + (i * lineHeight);
+            var line = visibleLines[i];
+
+            switch (line.Kind)
+            {
+                case ShoppingListDisplayLineKind.RecipeHeader:
+                    canvas
+                        .DrawPolygon(
+                            [
+                                new PointF(padding + 1, y + 4),
+                                new PointF(padding + 7, y + 7),
+                                new PointF(padding + 1, y + 10)
+                            ],
+                            fill: "red",
+                            outline: "red",
+                            outlineWidth: 1)
+                        .DrawTextFromFile(line.Text, padding + 12, y, itemFontSize, OeplBundledFonts.SansBold, "black");
+                    break;
+                case ShoppingListDisplayLineKind.RecipeIngredient:
+                    canvas
+                        .DrawLine(padding + 10, y + 7, padding + 14, y + 7, "black", 1)
+                        .DrawTextFromFile(line.Text, padding + 18, y, itemFontSize, OeplBundledFonts.SansRegular, "black");
+                    break;
+                case ShoppingListDisplayLineKind.Truncation:
+                    canvas
+                        .DrawCircle(padding + 3, y + 7, 1.2f, fill: "red", outline: "red", outlineWidth: 1)
+                        .DrawCircle(padding + 7, y + 7, 1.2f, fill: "red", outline: "red", outlineWidth: 1)
+                        .DrawCircle(padding + 11, y + 7, 1.2f, fill: "red", outline: "red", outlineWidth: 1)
+                        .DrawTextFromFile(line.Text, padding + 18, y, itemFontSize, OeplBundledFonts.SansRegular, "black");
+                    break;
+                default:
+                    canvas
+                        .DrawRectangle(padding, y + 2, 4, 4, fill: "black", outline: "black", outlineWidth: 1)
+                        .DrawTextFromFile(line.Text, padding + 10, y, itemFontSize, OeplBundledFonts.SansRegular, "black");
+                    break;
+            }
+        }
+    }
+
+    canvas.QuantizeToDisplayPalette();
+
+    await client.UploadRenderedImageAsync(
+        tag.Mac,
+        canvas,
+        new OpenEpaperLinkImageUploadOptions(
+            OpenEpaperLinkDitherMode.None,
+            90,
+            22),
+        cancellationToken);
+}
+
+static IReadOnlyList<ShoppingListDisplayLine> BuildShoppingListDisplayLines(IReadOnlyList<ShoppingListEntry> items)
+{
+    var lines = new List<ShoppingListDisplayLine>();
+    string? currentRecipe = null;
+
+    foreach (var item in items)
+    {
+        if (!item.HasRecipe)
+        {
+            currentRecipe = null;
+            lines.Add(new ShoppingListDisplayLine(item.IngredientDisplayText, ShoppingListDisplayLineKind.StandaloneIngredient));
+            continue;
+        }
+
+        if (!string.Equals(currentRecipe, item.RecipeName, StringComparison.CurrentCultureIgnoreCase))
+        {
+            currentRecipe = item.RecipeName;
+            lines.Add(new ShoppingListDisplayLine(item.RecipeName!, ShoppingListDisplayLineKind.RecipeHeader));
+        }
+
+        lines.Add(new ShoppingListDisplayLine(item.IngredientDisplayText, ShoppingListDisplayLineKind.RecipeIngredient));
+    }
+
+    return lines;
+}
+
+static string TruncateWithEllipsis(string value, int maxLength)
+{
+    if (maxLength <= 3 || value.Length <= maxLength)
+    {
+        return value;
+    }
+
+    return value[..(maxLength - 3)].TrimEnd() + "...";
+}
 
 static async Task ShowJpegDemoOnSchwarz1CoreAsync(OpenEpaperLinkRoamingClient client, OpenEpaperLinkTag tag, OpenEpaperLinkTagType tagType, bool portrait)
 {
@@ -382,6 +842,37 @@ internal sealed record TomorrowForecast(
     int PrecipitationProbabilityPercent,
     string WindSpeedKmh);
 
+internal sealed record ShoppingListSnapshot(
+    string Name,
+    IReadOnlyList<ShoppingListEntry> Items,
+    string StateSignature);
+
+internal sealed record ShoppingListEntry(
+    string IngredientDisplayText,
+    string IngredientSortKey,
+    string? RecipeName)
+{
+    public bool HasRecipe => !string.IsNullOrWhiteSpace(RecipeName);
+
+    public string RecipeSortKey => RecipeName ?? string.Empty;
+
+    public string DisplayText => HasRecipe
+        ? $"{RecipeName}: {IngredientDisplayText}"
+        : IngredientDisplayText;
+}
+
+internal sealed record ShoppingListDisplayLine(
+    string Text,
+    ShoppingListDisplayLineKind Kind);
+
+internal enum ShoppingListDisplayLineKind
+{
+    StandaloneIngredient,
+    RecipeHeader,
+    RecipeIngredient,
+    Truncation
+}
+
 internal sealed class OpenMeteoForecastResponse
 {
     [JsonPropertyName("daily")]
@@ -407,4 +898,88 @@ internal sealed class OpenMeteoDailyForecast
 
     [JsonPropertyName("wind_speed_10m_max")]
     public List<double>? WindSpeedMax { get; init; }
+}
+
+internal sealed class MealieShoppingListResponse
+{
+    [JsonPropertyName("name")]
+    public string? Name { get; init; }
+
+    [JsonPropertyName("listItems")]
+    public List<MealieShoppingListItem>? ListItems { get; init; }
+
+    [JsonPropertyName("recipeReferences")]
+    public List<MealieShoppingListRecipeReference>? RecipeReferences { get; init; }
+}
+
+internal sealed class MealieShoppingListItem
+{
+    [JsonPropertyName("quantity")]
+    public double? Quantity { get; init; }
+
+    [JsonPropertyName("display")]
+    public string? Display { get; init; }
+
+    [JsonPropertyName("note")]
+    public string? Note { get; init; }
+
+    [JsonPropertyName("checked")]
+    public bool Checked { get; init; }
+
+    [JsonPropertyName("position")]
+    public int Position { get; init; }
+
+    [JsonPropertyName("createdAt")]
+    public DateTimeOffset CreatedAt { get; init; }
+
+    [JsonPropertyName("unit")]
+    public MealieUnit? Unit { get; init; }
+
+    [JsonPropertyName("food")]
+    public MealieFood? Food { get; init; }
+
+    [JsonPropertyName("referencedRecipe")]
+    public MealieRecipeSummary? ReferencedRecipe { get; init; }
+
+    [JsonPropertyName("recipeReferences")]
+    public List<MealieShoppingListItemRecipeReference>? RecipeReferences { get; init; }
+}
+
+internal sealed class MealieUnit
+{
+    [JsonPropertyName("name")]
+    public string? Name { get; init; }
+
+    [JsonPropertyName("abbreviation")]
+    public string? Abbreviation { get; init; }
+}
+
+internal sealed class MealieFood
+{
+    [JsonPropertyName("name")]
+    public string? Name { get; init; }
+}
+
+internal sealed class MealieShoppingListRecipeReference
+{
+    [JsonPropertyName("recipeId")]
+    public string? RecipeId { get; init; }
+
+    [JsonPropertyName("recipe")]
+    public MealieRecipeSummary? Recipe { get; init; }
+}
+
+internal sealed class MealieShoppingListItemRecipeReference
+{
+    [JsonPropertyName("recipeId")]
+    public string? RecipeId { get; init; }
+
+    [JsonPropertyName("recipe")]
+    public MealieRecipeSummary? Recipe { get; init; }
+}
+
+internal sealed class MealieRecipeSummary
+{
+    [JsonPropertyName("name")]
+    public string? Name { get; init; }
 }
