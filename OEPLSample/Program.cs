@@ -897,8 +897,8 @@ static async Task ShowMealPlanOnSchwarz2Async(
         var lunchFillColor = day.HasMissingMainMeal ? "red" : "white";
         var dinnerFillColor = day.HasMissingMainMeal ? "red" : "white";
 
-        canvas.DrawTextFromFile(TruncateWithEllipsis(day.Label, maxDayCharacters), padding + 2, y, rowFontSize, OeplBundledFonts.SansBold, day.HasMissingMainMeal ? "red" : "black");
         canvas.DrawRectangle(padding + 1, rowTop + 1, dayColumnWidth - 1, cellFillHeight, fill: "white", outline: "white", outlineWidth: 0);
+        canvas.DrawTextFromFile(TruncateWithEllipsis(day.Label, maxDayCharacters), padding + 2, y, rowFontSize, OeplBundledFonts.SansBold, day.HasMissingMainMeal ? "red" : "black");
 
         // canvas.DrawRectangle(breakfastX + 1, rowTop + 1, breakfastColumnWidth - 1, cellFillHeight, fill: "white", outline: "white", outlineWidth: 0);
         canvas.DrawTextFromFile(TruncateWithEllipsis(day.Breakfast, maxBreakfastCharacters), breakfastX + 2, y, rowFontSize, OeplBundledFonts.SansRegular, "black");
