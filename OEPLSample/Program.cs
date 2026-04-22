@@ -897,17 +897,17 @@ static async Task ShowMealPlanOnSchwarz2Async(
         var lunchFillColor = day.HasMissingMainMeal ? "red" : "white";
         var dinnerFillColor = day.HasMissingMainMeal ? "red" : "white";
 
-        canvas
-            .DrawRectangle(padding + 1, rowTop + 1, dayColumnWidth - 1, cellFillHeight, fill: "white", outline: "white", outlineWidth: 0)
-            .DrawRectangle(breakfastX + 1, rowTop + 1, breakfastColumnWidth - 1, cellFillHeight, fill: "white", outline: "white", outlineWidth: 0)
-            .DrawRectangle(lunchX + 1, rowTop + 1, lunchColumnWidth - 1, cellFillHeight, fill: lunchFillColor, outline: lunchFillColor, outlineWidth: 0)
-            .DrawRectangle(dinnerX + 1, rowTop + 1, dinnerColumnWidth - 1, cellFillHeight, fill: dinnerFillColor, outline: dinnerFillColor, outlineWidth: 0);
+        canvas.DrawTextFromFile(TruncateWithEllipsis(day.Label, maxDayCharacters), padding + 2, y, rowFontSize, OeplBundledFonts.SansBold, day.HasMissingMainMeal ? "red" : "black");
+        canvas.DrawRectangle(padding + 1, rowTop + 1, dayColumnWidth - 1, cellFillHeight, fill: "white", outline: "white", outlineWidth: 0);
 
-        canvas
-            .DrawTextFromFile(TruncateWithEllipsis(day.Label, maxDayCharacters), padding + 2, y, rowFontSize, OeplBundledFonts.SansBold, day.HasMissingMainMeal ? "red" : "black")
-            .DrawTextFromFile(TruncateWithEllipsis(day.Breakfast, maxBreakfastCharacters), breakfastX + 2, y, rowFontSize, OeplBundledFonts.SansRegular, "black")
-            .DrawTextFromFile(TruncateWithEllipsis(day.Lunch, maxLunchCharacters), lunchX + 2, y, rowFontSize, OeplBundledFonts.SansRegular, day.HasMissingMainMeal ? "white" : "black")
-            .DrawTextFromFile(TruncateWithEllipsis(day.Dinner, maxDinnerCharacters), dinnerX + 2, y, rowFontSize, OeplBundledFonts.SansRegular, day.HasMissingMainMeal ? "white" : "black");
+        // canvas.DrawRectangle(breakfastX + 1, rowTop + 1, breakfastColumnWidth - 1, cellFillHeight, fill: "white", outline: "white", outlineWidth: 0);
+        canvas.DrawTextFromFile(TruncateWithEllipsis(day.Breakfast, maxBreakfastCharacters), breakfastX + 2, y, rowFontSize, OeplBundledFonts.SansRegular, "black");
+
+        canvas.DrawRectangle(lunchX + 1, rowTop + 1, lunchColumnWidth - 1, cellFillHeight, fill: lunchFillColor, outline: lunchFillColor, outlineWidth: 0);
+        canvas.DrawTextFromFile(TruncateWithEllipsis(day.Lunch, maxLunchCharacters), lunchX + 2, y, rowFontSize, OeplBundledFonts.SansRegular, day.HasMissingMainMeal ? "white" : "black");
+
+        canvas.DrawRectangle(dinnerX + 1, rowTop + 1, dinnerColumnWidth - 1, cellFillHeight, fill: dinnerFillColor, outline: dinnerFillColor, outlineWidth: 0);
+        canvas.DrawTextFromFile(TruncateWithEllipsis(day.Dinner, maxDinnerCharacters), dinnerX + 2, y, rowFontSize, OeplBundledFonts.SansRegular, day.HasMissingMainMeal ? "white" : "black");
 
         if (i < snapshot.Days.Count - 1)
         {
@@ -1126,8 +1126,8 @@ static string TruncateWithEllipsis(string value, int maxLength)
 
 static int EstimateMealPlanColumnCharacters(int columnWidth)
 {
-    const int horizontalPadding = 8;
-    const int averageCharacterWidth = 5;
+    const int horizontalPadding = 6;
+    const int averageCharacterWidth = 3;
 
     return Math.Max(4, (columnWidth - horizontalPadding) / averageCharacterWidth);
 }

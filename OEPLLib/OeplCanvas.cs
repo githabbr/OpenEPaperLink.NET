@@ -109,7 +109,10 @@ public sealed class OeplCanvas : IDisposable
                 context.Fill(PixelPerfectDrawingOptions, OeplColors.Resolve(fill, AccentColor), rect);
             }
 
-            context.Draw(PixelPerfectDrawingOptions, OeplColors.Resolve(outline, AccentColor), outlineWidth, rect);
+            if (outlineWidth > 0 && !string.IsNullOrWhiteSpace(outline))
+            {
+                context.Draw(PixelPerfectDrawingOptions, OeplColors.Resolve(outline, AccentColor), outlineWidth, rect);
+            }
         });
         return this;
     }
@@ -124,7 +127,10 @@ public sealed class OeplCanvas : IDisposable
                 context.Fill(PixelPerfectDrawingOptions, OeplColors.Resolve(fill, AccentColor), rounded);
             }
 
-            context.Draw(PixelPerfectDrawingOptions, OeplColors.Resolve(outline, AccentColor), outlineWidth, rounded);
+            if (outlineWidth > 0 && !string.IsNullOrWhiteSpace(outline))
+            {
+                context.Draw(PixelPerfectDrawingOptions, OeplColors.Resolve(outline, AccentColor), outlineWidth, rounded);
+            }
         });
         return this;
     }
@@ -139,7 +145,10 @@ public sealed class OeplCanvas : IDisposable
                 context.Fill(PixelPerfectDrawingOptions, OeplColors.Resolve(fill, AccentColor), circle);
             }
 
-            context.Draw(PixelPerfectDrawingOptions, OeplColors.Resolve(outline, AccentColor), outlineWidth, circle);
+            if (outlineWidth > 0 && !string.IsNullOrWhiteSpace(outline))
+            {
+                context.Draw(PixelPerfectDrawingOptions, OeplColors.Resolve(outline, AccentColor), outlineWidth, circle);
+            }
         });
         return this;
     }
@@ -154,7 +163,10 @@ public sealed class OeplCanvas : IDisposable
                 context.Fill(PixelPerfectDrawingOptions, OeplColors.Resolve(fill, AccentColor), ellipse);
             }
 
-            context.Draw(PixelPerfectDrawingOptions, OeplColors.Resolve(outline, AccentColor), outlineWidth, ellipse);
+            if (outlineWidth > 0 && !string.IsNullOrWhiteSpace(outline))
+            {
+                context.Draw(PixelPerfectDrawingOptions, OeplColors.Resolve(outline, AccentColor), outlineWidth, ellipse);
+            }
         });
         return this;
     }
@@ -169,7 +181,10 @@ public sealed class OeplCanvas : IDisposable
                 context.Fill(PixelPerfectDrawingOptions, OeplColors.Resolve(fill, AccentColor), polygon);
             }
 
-            context.Draw(PixelPerfectDrawingOptions, OeplColors.Resolve(outline, AccentColor), outlineWidth, polygon);
+            if (outlineWidth > 0 && !string.IsNullOrWhiteSpace(outline))
+            {
+                context.Draw(PixelPerfectDrawingOptions, OeplColors.Resolve(outline, AccentColor), outlineWidth, polygon);
+            }
         });
         return this;
     }
