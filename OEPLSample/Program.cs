@@ -323,14 +323,18 @@ static async Task RunShoppingListSyncLoopAsync(
     CancellationToken cancellationToken)
 {
     string? latestKnownState = null;
+    DateTimeOffset? lastDisplayUpdateUtc = null;
+    var periodicRefreshInterval = TimeSpan.FromHours(12);
 
     while (!cancellationToken.IsCancellationRequested)
     {
         try
         {
             var snapshot = await GetShoppingListSnapshotAsync(mealieClient, shoppingListId, cancellationToken);
+            var stateChanged = !string.Equals(snapshot.StateSignature, latestKnownState, StringComparison.Ordinal);
+            var periodicRefreshDue = lastDisplayUpdateUtc is null || (DateTimeOffset.UtcNow - lastDisplayUpdateUtc.Value) >= periodicRefreshInterval;
 
-            if (string.Equals(snapshot.StateSignature, latestKnownState, StringComparison.Ordinal))
+            if (!stateChanged && !periodicRefreshDue)
             {
                 Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Shopping list unchanged ({snapshot.Items.Count} open item(s)).");
             }
@@ -338,7 +342,16 @@ static async Task RunShoppingListSyncLoopAsync(
             {
                 await ShowShoppingListOnSchwarz1Async(oeplClient, tag, tagType, snapshot, renderMode, cancellationToken);
                 latestKnownState = snapshot.StateSignature;
-                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Synced {snapshot.Items.Count} open item(s) from '{snapshot.Name}' to {tag.Alias ?? tag.Mac} via {renderMode}.");
+                lastDisplayUpdateUtc = DateTimeOffset.UtcNow;
+
+                if (stateChanged)
+                {
+                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Synced {snapshot.Items.Count} open item(s) from '{snapshot.Name}' to {tag.Alias ?? tag.Mac} via {renderMode}.");
+                }
+                else
+                {
+                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Refreshed unchanged shopping list '{snapshot.Name}' on {tag.Alias ?? tag.Mac} after {periodicRefreshInterval.TotalHours:0}h via {renderMode}.");
+                }
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -372,6 +385,8 @@ static async Task RunMealPlanSyncLoopAsync(
     CancellationToken cancellationToken)
 {
     string? latestKnownState = null;
+    DateTimeOffset? lastDisplayUpdateUtc = null;
+    var periodicRefreshInterval = TimeSpan.FromHours(12);
 
     while (!cancellationToken.IsCancellationRequested)
     {
@@ -379,8 +394,10 @@ static async Task RunMealPlanSyncLoopAsync(
         {
             var startDate = DateOnly.FromDateTime(DateTime.Now);
             var snapshot = await GetMealPlanSnapshotAsync(mealieClient, startDate, dayCount, cancellationToken);
+            var stateChanged = !string.Equals(snapshot.StateSignature, latestKnownState, StringComparison.Ordinal);
+            var periodicRefreshDue = lastDisplayUpdateUtc is null || (DateTimeOffset.UtcNow - lastDisplayUpdateUtc.Value) >= periodicRefreshInterval;
 
-            if (string.Equals(snapshot.StateSignature, latestKnownState, StringComparison.Ordinal))
+            if (!stateChanged && !periodicRefreshDue)
             {
                 Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Meal plan unchanged ({snapshot.TotalMealCount} planned meal(s)).");
             }
@@ -388,7 +405,16 @@ static async Task RunMealPlanSyncLoopAsync(
             {
                 await ShowMealPlanOnSchwarz2Async(oeplClient, tag, tagType, snapshot, renderMode, cancellationToken);
                 latestKnownState = snapshot.StateSignature;
-                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Synced {snapshot.TotalMealCount} planned meal(s) from {snapshot.StartDate:yyyy-MM-dd} to {snapshot.EndDate:yyyy-MM-dd} to {tag.Alias ?? tag.Mac} via {renderMode}.");
+                lastDisplayUpdateUtc = DateTimeOffset.UtcNow;
+
+                if (stateChanged)
+                {
+                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Synced {snapshot.TotalMealCount} planned meal(s) from {snapshot.StartDate:yyyy-MM-dd} to {snapshot.EndDate:yyyy-MM-dd} to {tag.Alias ?? tag.Mac} via {renderMode}.");
+                }
+                else
+                {
+                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Refreshed unchanged meal plan for {snapshot.StartDate:yyyy-MM-dd} to {snapshot.EndDate:yyyy-MM-dd} on {tag.Alias ?? tag.Mac} after {periodicRefreshInterval.TotalHours:0}h via {renderMode}.");
+                }
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -843,10 +869,10 @@ static async Task ShowMealPlanOnSchwarz2Async(
     var lunchX = breakfastX + breakfastColumnWidth;
     var dinnerX = lunchX + lunchColumnWidth;
     var rowHeight = Math.Max(10, (height - tableTop - padding) / (snapshot.Days.Count + 1));
-    var maxDayCharacters = Math.Max(4, (dayColumnWidth - 6) / 3);
-    var maxBreakfastCharacters = Math.Max(4, (breakfastColumnWidth - 6) / 3);
-    var maxLunchCharacters = Math.Max(4, (lunchColumnWidth - 6) / 3);
-    var maxDinnerCharacters = Math.Max(4, (dinnerColumnWidth - 6) / 3);
+    var maxDayCharacters = EstimateMealPlanColumnCharacters(dayColumnWidth);
+    var maxBreakfastCharacters = EstimateMealPlanColumnCharacters(breakfastColumnWidth);
+    var maxLunchCharacters = EstimateMealPlanColumnCharacters(lunchColumnWidth);
+    var maxDinnerCharacters = EstimateMealPlanColumnCharacters(dinnerColumnWidth);
     var tableBottom = Math.Min(height - padding, tableTop + ((snapshot.Days.Count + 1) * rowHeight));
 
     canvas
@@ -867,13 +893,15 @@ static async Task ShowMealPlanOnSchwarz2Async(
         var y = tableTop + ((i + 1) * rowHeight);
         var rowTop = y - 1;
         var rowFillHeight = Math.Max(1, rowHeight - 1);
+        var cellFillHeight = Math.Max(1, rowFillHeight - 2);
+        var lunchFillColor = day.HasMissingMainMeal ? "red" : "white";
+        var dinnerFillColor = day.HasMissingMainMeal ? "red" : "white";
 
-        if (day.HasMissingMainMeal)
-        {
-            canvas
-                .DrawRectangle(lunchX + 1, rowTop + 1, lunchColumnWidth - 1, rowFillHeight - 2, fill: "red", outline: "red", outlineWidth: 1)
-                .DrawRectangle(dinnerX + 1, rowTop + 1, dinnerColumnWidth - 1, rowFillHeight - 2, fill: "red", outline: "red", outlineWidth: 1);
-        }
+        canvas
+            .DrawRectangle(padding + 1, rowTop + 1, dayColumnWidth - 1, cellFillHeight, fill: "white", outline: "white", outlineWidth: 0)
+            .DrawRectangle(breakfastX + 1, rowTop + 1, breakfastColumnWidth - 1, cellFillHeight, fill: "white", outline: "white", outlineWidth: 0)
+            .DrawRectangle(lunchX + 1, rowTop + 1, lunchColumnWidth - 1, cellFillHeight, fill: lunchFillColor, outline: lunchFillColor, outlineWidth: 0)
+            .DrawRectangle(dinnerX + 1, rowTop + 1, dinnerColumnWidth - 1, cellFillHeight, fill: dinnerFillColor, outline: dinnerFillColor, outlineWidth: 0);
 
         canvas
             .DrawTextFromFile(TruncateWithEllipsis(day.Label, maxDayCharacters), padding + 2, y, rowFontSize, OeplBundledFonts.SansBold, day.HasMissingMainMeal ? "red" : "black")
@@ -1010,10 +1038,10 @@ static async Task ShowMealPlanOnSchwarz2AsJsonAsync(
     var lunchX = breakfastX + breakfastColumnWidth;
     var dinnerX = lunchX + lunchColumnWidth;
     var rowHeight = Math.Max(10, (height - tableTop - padding) / (snapshot.Days.Count + 1));
-    var maxDayCharacters = Math.Max(4, (dayColumnWidth - 6) / 3);
-    var maxBreakfastCharacters = Math.Max(4, (breakfastColumnWidth - 6) / 3);
-    var maxLunchCharacters = Math.Max(4, (lunchColumnWidth - 6) / 3);
-    var maxDinnerCharacters = Math.Max(4, (dinnerColumnWidth - 6) / 3);
+    var maxDayCharacters = EstimateMealPlanColumnCharacters(dayColumnWidth);
+    var maxBreakfastCharacters = EstimateMealPlanColumnCharacters(breakfastColumnWidth);
+    var maxLunchCharacters = EstimateMealPlanColumnCharacters(lunchColumnWidth);
+    var maxDinnerCharacters = EstimateMealPlanColumnCharacters(dinnerColumnWidth);
     var tableBottom = Math.Min(height - padding, tableTop + ((snapshot.Days.Count + 1) * rowHeight));
     var headerBaseline = tableTop + 10;
 
@@ -1036,14 +1064,14 @@ static async Task ShowMealPlanOnSchwarz2AsJsonAsync(
         var y = tableTop + ((i + 1) * rowHeight);
         var rowTop = y - 1;
         var rowFillHeight = Math.Max(1, rowHeight - 1);
+        var cellFillHeight = Math.Max(1, rowFillHeight - 2);
         var textBaseline = y + 10;
 
-        if (day.HasMissingMainMeal)
-        {
-            document
-                .Add(new JsonBoxCommand(lunchX + 1, rowTop + 1, lunchColumnWidth - 1, rowFillHeight - 2, OeplJsonColor.Red))
-                .Add(new JsonBoxCommand(dinnerX + 1, rowTop + 1, dinnerColumnWidth - 1, rowFillHeight - 2, OeplJsonColor.Red));
-        }
+        document
+            .Add(new JsonBoxCommand(padding + 1, rowTop + 1, dayColumnWidth - 1, cellFillHeight, OeplJsonColor.White))
+            .Add(new JsonBoxCommand(breakfastX + 1, rowTop + 1, breakfastColumnWidth - 1, cellFillHeight, OeplJsonColor.White))
+            .Add(new JsonBoxCommand(lunchX + 1, rowTop + 1, lunchColumnWidth - 1, cellFillHeight, day.HasMissingMainMeal ? OeplJsonColor.Red : OeplJsonColor.White))
+            .Add(new JsonBoxCommand(dinnerX + 1, rowTop + 1, dinnerColumnWidth - 1, cellFillHeight, day.HasMissingMainMeal ? OeplJsonColor.Red : OeplJsonColor.White));
 
         document
             .Add(new JsonTextCommand(padding + (dayColumnWidth / 2), textBaseline, TruncateWithEllipsis(day.Label, maxDayCharacters), font, day.HasMissingMainMeal ? OeplJsonColor.Red : OeplJsonColor.Black, OeplJsonTextAlignment.Center))
@@ -1094,6 +1122,14 @@ static string TruncateWithEllipsis(string value, int maxLength)
     }
 
     return value[..(maxLength - 3)].TrimEnd() + "...";
+}
+
+static int EstimateMealPlanColumnCharacters(int columnWidth)
+{
+    const int horizontalPadding = 8;
+    const int averageCharacterWidth = 5;
+
+    return Math.Max(4, (columnWidth - horizontalPadding) / averageCharacterWidth);
 }
 
 static async Task ShowJpegDemoOnSchwarz1CoreAsync(OpenEpaperLinkRoamingClient client, OpenEpaperLinkTag tag, OpenEpaperLinkTagType tagType, bool portrait)
