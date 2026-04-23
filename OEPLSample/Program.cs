@@ -336,7 +336,8 @@ static async Task RunShoppingListSyncLoopAsync(
 
             if (!stateChanged && !periodicRefreshDue)
             {
-                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Shopping list unchanged ({snapshot.Items.Count} open item(s)).");
+                var timeSinceLastPeriodicRefresh = lastDisplayUpdateUtc.HasValue ? DateTimeOffset.UtcNow - lastDisplayUpdateUtc.Value : TimeSpan.Zero;
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Shopping list unchanged ({snapshot.Items.Count} open item(s), next periodic refresh in {(periodicRefreshInterval - timeSinceLastPeriodicRefresh).TotalMinutes:0} min).");
             }
             else
             {
@@ -399,7 +400,8 @@ static async Task RunMealPlanSyncLoopAsync(
 
             if (!stateChanged && !periodicRefreshDue)
             {
-                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Meal plan unchanged ({snapshot.TotalMealCount} planned meal(s)).");
+                var timeSinceLastPeriodicRefresh = lastDisplayUpdateUtc.HasValue ? DateTimeOffset.UtcNow - lastDisplayUpdateUtc.Value : TimeSpan.Zero;
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Meal plan unchanged ({snapshot.TotalMealCount} planned meal(s), next periodic refresh in {(periodicRefreshInterval - timeSinceLastPeriodicRefresh).TotalMinutes:0} min).");
             }
             else
             {
