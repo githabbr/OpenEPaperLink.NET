@@ -5,3 +5,5 @@ It supports:
 * roaming tags
 * generate JPEG and publish it as static image
 * generate JSON for image rendering on the AP
+
+As one of the examples, it reads the mealplan and shopping list from a Mealie server and shows them on two tags.
