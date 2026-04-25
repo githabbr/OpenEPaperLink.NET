@@ -324,7 +324,7 @@ static async Task RunShoppingListSyncLoopAsync(
 {
     string? latestKnownState = null;
     DateTimeOffset? lastDisplayUpdateUtc = null;
-    var periodicRefreshInterval = TimeSpan.FromHours(12);
+    var periodicRefreshInterval = TimeSpan.FromHours(8);
 
     while (!cancellationToken.IsCancellationRequested)
     {
@@ -387,7 +387,7 @@ static async Task RunMealPlanSyncLoopAsync(
 {
     string? latestKnownState = null;
     DateTimeOffset? lastDisplayUpdateUtc = null;
-    var periodicRefreshInterval = TimeSpan.FromHours(12);
+    var periodicRefreshInterval = TimeSpan.FromHours(8);
 
     while (!cancellationToken.IsCancellationRequested)
     {
