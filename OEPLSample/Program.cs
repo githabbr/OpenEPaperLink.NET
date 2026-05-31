@@ -12,11 +12,18 @@ const string mealieBaseAddress = "https://mealie.turino.de";
 const string supermarktShoppingListId = "f344e66e-6115-4336-a8c5-38bb49ec6515";
 const string schwarz1Alias = "Schwarz1";
 const string schwarz2Alias = "Schwarz2";
+const string schwarz4Alias = "Schwarz4";
+const string weiss1Alias = "Weiss1";
 const double forecastLatitude = 48.311944;
 const double forecastLongitude = 8.917778;
 const string forecastLocationName = "Bisingen, DE";
+const double weatherLatitude = 48.31012;
+const double weatherLongitude = 8.91738;
+const string weatherTimezone = "Europe/Berlin";
+const string weatherLocationName = "Bisingen, DE";
 const int mealPlanDayCount = 8;
 var shoppingListPollInterval = TimeSpan.FromMinutes(1);
+var weatherPollInterval = TimeSpan.FromHours(3);
 var shoppingListRenderMode = LoadRenderModeSetting("SHOPPING_LIST_RENDER_MODE", DisplayRenderMode.Jpeg);
 var mealPlanRenderMode = LoadRenderModeSetting("MEAL_PLAN_RENDER_MODE", DisplayRenderMode.Jpeg);
 
@@ -86,6 +93,11 @@ else
     var schwarz2Type = await client.GetTagTypeAsync(schwarz2.HardwareType)
         ?? throw new InvalidOperationException($"No tag type metadata was found for {schwarz2Alias}.");
 
+    var schwarz4 = await client.GetTagByAliasAsync(schwarz4Alias)
+        ?? throw new InvalidOperationException($"Could not resolve tag '{schwarz4Alias}'.");
+    var weiss1 = await client.GetTagByAliasAsync(weiss1Alias)
+        ?? throw new InvalidOperationException($"Could not resolve tag '{weiss1Alias}'.");
+
     var mealieToken = LoadRequiredSetting("MEALIE_TOKEN");
     using var mealieClient = CreateMealieClient(mealieToken);
     using var cancellationTokenSource = new CancellationTokenSource();
@@ -98,6 +110,7 @@ else
 
     Console.WriteLine($"Starting Mealie sync for list '{supermarktShoppingListId}' to {schwarz1Alias} in portrait mode using {shoppingListRenderMode} rendering.");
     Console.WriteLine($"Starting Mealie sync for the meal plan on {schwarz2Alias} for today plus the next {mealPlanDayCount - 1} days using {mealPlanRenderMode} rendering.");
+    Console.WriteLine($"Starting weather sync (3h interval, quiet 23-04) on {schwarz4Alias} (400x300) and {weiss1Alias} (384x184).");
     Console.WriteLine("Only unchecked shopping-list items are shown on Schwarz1. Press Ctrl+C to stop.");
 
     await Task.WhenAll(
@@ -118,6 +131,16 @@ else
             shoppingListPollInterval,
             mealPlanDayCount,
             mealPlanRenderMode,
+            cancellationTokenSource.Token),
+        RunWeatherSyncLoopAsync(
+            client,
+            schwarz4,
+            weiss1,
+            weatherLatitude,
+            weatherLongitude,
+            weatherTimezone,
+            weatherLocationName,
+            weatherPollInterval,
             cancellationTokenSource.Token));
 
 }
@@ -1282,6 +1305,351 @@ static async Task ShowJsonDemoOnSchwarz2CoreAsync(OpenEpaperLinkRoamingClient cl
     await client.UploadJsonTemplateAsync(tag.Mac, document);
 }
 
+static async Task RunWeatherSyncLoopAsync(
+    OpenEpaperLinkRoamingClient client,
+    OpenEpaperLinkTag schwarz4Tag,
+    OpenEpaperLinkTag weiss1Tag,
+    double latitude,
+    double longitude,
+    string timezone,
+    string locationName,
+    TimeSpan pollInterval,
+    CancellationToken cancellationToken)
+{
+    while (!cancellationToken.IsCancellationRequested)
+    {
+        var now = DateTime.Now;
+
+        // Quiet hours: no update between 23:00 and 04:00
+        if (now.Hour >= 23 || now.Hour < 4)
+        {
+            var wakeTime = now.Hour >= 23
+                ? now.Date.AddDays(1).AddHours(4)
+                : now.Date.AddHours(4);
+            Console.WriteLine($"[{now:HH:mm:ss}] Weather: quiet hours, next update at {wakeTime:HH:mm}.");
+            try { await Task.Delay(wakeTime - now, cancellationToken); } catch (OperationCanceledException) { break; }
+            continue;
+        }
+
+        try
+        {
+            var weather = await GetWeatherAndForecastAsync(latitude, longitude, timezone);
+            await ShowWeatherOnSchwarz4Async(client, schwarz4Tag, weather, locationName, cancellationToken);
+            await ShowWeatherOnWeiss1Async(client, weiss1Tag, weather, locationName, cancellationToken);
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Weather updated on {schwarz4Tag.Alias ?? schwarz4Tag.Mac} and {weiss1Tag.Alias ?? weiss1Tag.Mac}.");
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            break;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Weather sync failed: {ex.Message}");
+        }
+
+        try { await Task.Delay(pollInterval, cancellationToken); }
+        catch (OperationCanceledException) { break; }
+    }
+}
+
+static async Task<OpenMeteoWeatherSnapshot> GetWeatherAndForecastAsync(double latitude, double longitude, string timezone)
+{
+    var url = string.Create(
+        CultureInfo.InvariantCulture,
+        $"https://api.open-meteo.com/v1/forecast"
+        + $"?latitude={latitude}&longitude={longitude}"
+        + $"&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,is_day,precipitation"
+        + $"&hourly=temperature_2m,precipitation_probability,weather_code,wind_speed_10m"
+        + $"&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,wind_direction_10m_dominant"
+        + $"&timezone={Uri.EscapeDataString(timezone)}&wind_speed_unit=kmh&forecast_days=2");
+
+    using var httpClient = new HttpClient();
+    using var response = await httpClient.GetAsync(url);
+    response.EnsureSuccessStatusCode();
+
+    await using var stream = await response.Content.ReadAsStreamAsync();
+    var payload = await JsonSerializer.DeserializeAsync<OpenMeteoWeatherResponse>(stream)
+        ?? throw new InvalidOperationException("Open-Meteo returned an empty weather payload.");
+
+    return new OpenMeteoWeatherSnapshot(
+        payload.Current ?? throw new InvalidOperationException("Open-Meteo current weather data is missing."),
+        payload.Hourly ?? throw new InvalidOperationException("Open-Meteo hourly data is missing."),
+        payload.Daily ?? throw new InvalidOperationException("Open-Meteo daily data is missing."));
+}
+
+static async Task ShowWeatherOnSchwarz4Async(
+    OpenEpaperLinkRoamingClient client,
+    OpenEpaperLinkTag tag,
+    OpenMeteoWeatherSnapshot weather,
+    string locationName,
+    CancellationToken cancellationToken = default)
+{
+    const int width = 400;
+    const int height = 300;
+    const int colCount = 6;
+    const int colWidth = width / colCount; // 66 px
+
+    using var canvas = new OeplCanvas(width, height, OeplAccentColor.Yellow);
+    var cur = weather.Current;
+    var daily = weather.Daily;
+
+    var todayMaxTemp = daily.TemperatureMax?[0] ?? 0;
+    var todayMinTemp = daily.TemperatureMin?[0] ?? 0;
+    var todayPrecip = daily.PrecipitationSum?[0] ?? 0;
+    var todayRainPct = daily.PrecipitationProbabilityMax?[0] ?? 0;
+    var todayWindMax = daily.WindSpeedMax?[0] ?? 0;
+    var todayWindDir = daily.WindDirectionDominant?[0] ?? 0;
+
+    // ── Header ────────────────────────────────────────────────────────────
+    canvas
+        .DrawRectangle(0, 0, width, 30, fill: "yellow", outline: "yellow", outlineWidth: 0)
+        .DrawTextFromFile("WETTER", 8, 8, 13, OeplBundledFonts.SansBold, "black")
+        .DrawTextFromFile(locationName, 145, 8, 13, OeplBundledFonts.SansBold, "black")
+        .DrawTextFromFile(DateTime.Now.ToString("HH:mm"), 340, 8, 12, OeplBundledFonts.SansRegular, "black");
+
+    // ── Current weather ───────────────────────────────────────────────────
+    var tempColor = cur.Temperature < 0 ? "yellow" : "black";
+    canvas
+        .DrawTextFromFile($"{Math.Round(cur.Temperature):0}°C", 10, 36, 42, OeplBundledFonts.SansBold, tempColor)
+        .DrawTextFromFile($"{WeatherWindDirection(cur.WindDirection)} {Math.Round(cur.WindSpeed):0} km/h", 10, 96, 13, OeplBundledFonts.SansRegular, "black")
+        .DrawTextFromFile($"Gefühlt: {Math.Round(cur.ApparentTemperature):0}°C", 10, 113, 13, OeplBundledFonts.SansRegular, "black");
+
+    // Right column: description + precipitation
+    canvas
+        .DrawLine(142, 32, 142, 127, "black", 1)
+        .DrawTextFromFile(WeatherDescription(cur.WeatherCode), 148, 36, 15, OeplBundledFonts.SansBold, IsRainWeatherCode(cur.WeatherCode) ? "yellow" : "black")
+        .DrawTextFromFile($"Niederschlag: {cur.Precipitation:0.0} mm", 148, 62, 12, OeplBundledFonts.SansRegular, cur.Precipitation > 0 ? "yellow" : "black");
+
+    // ── Daily summary ─────────────────────────────────────────────────────
+    canvas.DrawLine(0, 129, width, 129, "black", 1.5f);
+    canvas
+        .DrawTextFromFile("Heute:", 8, 134, 11.5f, OeplBundledFonts.SansBold, "black")
+        .DrawTextFromFile($"Max {Math.Round(todayMaxTemp):0}°", 55, 134, 11.5f, OeplBundledFonts.SansRegular, todayMaxTemp < 0 ? "yellow" : "black")
+        .DrawTextFromFile($"Min {Math.Round(todayMinTemp):0}°", 118, 134, 11.5f, OeplBundledFonts.SansRegular, todayMinTemp < 0 ? "yellow" : "black")
+        .DrawTextFromFile($"{todayPrecip:0.0} mm", 180, 134, 11.5f, OeplBundledFonts.SansRegular, todayPrecip > 0 ? "yellow" : "black")
+        .DrawTextFromFile($"{todayRainPct}%", 228, 134, 11.5f, OeplBundledFonts.SansRegular, todayRainPct > 30 ? "yellow" : "black")
+        .DrawTextFromFile($"{WeatherWindDirection(todayWindDir)} {Math.Round(todayWindMax):0} km/h", 272, 134, 11.5f, OeplBundledFonts.SansRegular, "black");
+    canvas.DrawLine(0, 150, width, 150, "black", 1.5f);
+
+    // ── Hourly forecast columns ───────────────────────────────────────────
+    var slotIndices = GetHourlySlotIndices(weather.Hourly.Time ?? [], cur.Time, colCount, 3);
+
+    for (var col = 0; col < colCount; col++)
+    {
+        var x = col * colWidth;
+        var textX = x + 4;
+
+        if (col > 0)
+            canvas.DrawLine(x, 152, x, 265, "black", 1);
+
+        var idx = slotIndices[col];
+        if (idx < 0 || weather.Hourly.Time is null) continue;
+
+        var slotTime = weather.Hourly.Time[idx];
+        var slotTemp = weather.Hourly.Temperature?[idx] ?? 0;
+        var slotRainPct = weather.Hourly.PrecipitationProbability?[idx] ?? 0;
+        var slotCode = weather.Hourly.WeatherCode?[idx] ?? 0;
+        var timeLabel = slotTime.Length >= 16 ? slotTime[11..16] : "--:--";
+
+        canvas
+            .DrawTextFromFile(timeLabel, textX, 154, 11, OeplBundledFonts.SansRegular, "black")
+            .DrawTextFromFile(WeatherShortLabel(slotCode), textX, 170, 10, OeplBundledFonts.SansRegular, IsRainWeatherCode(slotCode) ? "yellow" : "black")
+            .DrawTextFromFile($"{Math.Round(slotTemp):0}°C", textX, 186, 13, OeplBundledFonts.SansBold, slotTemp < 0 ? "yellow" : "black")
+            .DrawTextFromFile($"{slotRainPct}%", textX, 203, 11, OeplBundledFonts.SansRegular, slotRainPct > 30 ? "yellow" : "black");
+    }
+
+    // ── Footer ────────────────────────────────────────────────────────────
+    canvas.DrawLine(0, 267, width, 267, "black", 1);
+    canvas.DrawTextFromFile($"Akt. {DateTime.Now:HH:mm} Uhr", 8, 271, 10, OeplBundledFonts.SansRegular, "black");
+
+    canvas.QuantizeToDisplayPalette();
+    await client.UploadRenderedImageAsync(
+        tag.Mac,
+        canvas,
+        new OpenEpaperLinkImageUploadOptions(OpenEpaperLinkDitherMode.None, 90, 22),
+        cancellationToken);
+}
+
+static async Task ShowWeatherOnWeiss1Async(
+    OpenEpaperLinkRoamingClient client,
+    OpenEpaperLinkTag tag,
+    OpenMeteoWeatherSnapshot weather,
+    string locationName,
+    CancellationToken cancellationToken = default)
+{
+    const int width = 384;
+    const int height = 184;
+    const int colCount = 4;
+    const int colWidth = width / colCount; // 96 px
+
+    using var canvas = new OeplCanvas(width, height, OeplAccentColor.Yellow);
+    var cur = weather.Current;
+    var daily = weather.Daily;
+
+    var todayMaxTemp = daily.TemperatureMax?[0] ?? 0;
+    var todayMinTemp = daily.TemperatureMin?[0] ?? 0;
+    var todayPrecip = daily.PrecipitationSum?[0] ?? 0;
+    var todayRainPct = daily.PrecipitationProbabilityMax?[0] ?? 0;
+    var todayWindMax = daily.WindSpeedMax?[0] ?? 0;
+    var todayWindDir = daily.WindDirectionDominant?[0] ?? 0;
+
+    // ── Header ────────────────────────────────────────────────────────────
+    canvas
+        .DrawRectangle(0, 0, width, 27, fill: "yellow", outline: "yellow", outlineWidth: 0)
+        .DrawTextFromFile("WETTER", 8, 7, 12, OeplBundledFonts.SansBold, "black")
+        .DrawTextFromFile(locationName, 128, 7, 12, OeplBundledFonts.SansBold, "black")
+        .DrawTextFromFile(DateTime.Now.ToString("HH:mm"), 326, 7, 11, OeplBundledFonts.SansRegular, "black");
+
+    // ── Current weather ───────────────────────────────────────────────────
+    var tempColor = cur.Temperature < 0 ? "yellow" : "black";
+    canvas.DrawTextFromFile($"{Math.Round(cur.Temperature):0}°C", 8, 30, 34, OeplBundledFonts.SansBold, tempColor);
+
+    canvas
+        .DrawLine(118, 30, 118, 90, "black", 1)
+        .DrawTextFromFile(WeatherDescription(cur.WeatherCode), 124, 30, 14, OeplBundledFonts.SansBold, IsRainWeatherCode(cur.WeatherCode) ? "yellow" : "black")
+        .DrawTextFromFile($"{WeatherWindDirection(cur.WindDirection)} {Math.Round(cur.WindSpeed):0} km/h", 124, 52, 11.5f, OeplBundledFonts.SansRegular, "black")
+        .DrawTextFromFile($"Gefühlt: {Math.Round(cur.ApparentTemperature):0}°C", 124, 69, 11.5f, OeplBundledFonts.SansRegular, "black");
+
+    // ── Daily summary ─────────────────────────────────────────────────────
+    canvas.DrawLine(0, 93, width, 93, "black", 1.5f);
+    canvas
+        .DrawTextFromFile($"Max {Math.Round(todayMaxTemp):0}°", 4, 97, 11, OeplBundledFonts.SansRegular, todayMaxTemp < 0 ? "yellow" : "black")
+        .DrawTextFromFile($"Min {Math.Round(todayMinTemp):0}°", 62, 97, 11, OeplBundledFonts.SansRegular, todayMinTemp < 0 ? "yellow" : "black")
+        .DrawTextFromFile($"{todayPrecip:0.0} mm", 120, 97, 11, OeplBundledFonts.SansRegular, todayPrecip > 0 ? "yellow" : "black")
+        .DrawTextFromFile($"{todayRainPct}%", 164, 97, 11, OeplBundledFonts.SansRegular, todayRainPct > 30 ? "yellow" : "black")
+        .DrawTextFromFile($"{WeatherWindDirection(todayWindDir)} {Math.Round(todayWindMax):0} km/h", 208, 97, 11, OeplBundledFonts.SansRegular, "black");
+    canvas.DrawLine(0, 112, width, 112, "black", 1.5f);
+
+    // ── Hourly forecast columns ───────────────────────────────────────────
+    var slotIndices = GetHourlySlotIndices(weather.Hourly.Time ?? [], cur.Time, colCount, 3);
+
+    for (var col = 0; col < colCount; col++)
+    {
+        var x = col * colWidth;
+        var textX = x + 5;
+
+        if (col > 0)
+            canvas.DrawLine(x, 114, x, 170, "black", 1);
+
+        var idx = slotIndices[col];
+        if (idx < 0 || weather.Hourly.Time is null) continue;
+
+        var slotTime = weather.Hourly.Time[idx];
+        var slotTemp = weather.Hourly.Temperature?[idx] ?? 0;
+        var slotRainPct = weather.Hourly.PrecipitationProbability?[idx] ?? 0;
+        var slotCode = weather.Hourly.WeatherCode?[idx] ?? 0;
+        var timeLabel = slotTime.Length >= 16 ? slotTime[11..16] : "--:--";
+
+        canvas
+            .DrawTextFromFile(timeLabel, textX, 115, 10.5f, OeplBundledFonts.SansRegular, "black")
+            .DrawTextFromFile(WeatherShortLabel(slotCode), textX, 128, 10, OeplBundledFonts.SansRegular, IsRainWeatherCode(slotCode) ? "yellow" : "black")
+            .DrawTextFromFile($"{Math.Round(slotTemp):0}°C", textX, 141, 12, OeplBundledFonts.SansBold, slotTemp < 0 ? "yellow" : "black")
+            .DrawTextFromFile($"{slotRainPct}%", textX, 155, 10, OeplBundledFonts.SansRegular, slotRainPct > 30 ? "yellow" : "black");
+    }
+
+    // ── Footer ────────────────────────────────────────────────────────────
+    canvas.DrawLine(0, 169, width, 169, "black", 1);
+    canvas.DrawTextFromFile($"Akt. {DateTime.Now:HH:mm} Uhr", 8, 172, 10, OeplBundledFonts.SansRegular, "black");
+
+    canvas.QuantizeToDisplayPalette();
+    await client.UploadRenderedImageAsync(
+        tag.Mac,
+        canvas,
+        new OpenEpaperLinkImageUploadOptions(OpenEpaperLinkDitherMode.None, 90, 22),
+        cancellationToken);
+}
+
+static int[] GetHourlySlotIndices(List<string> hourlyTimes, string? currentTimeStr, int slotCount, int intervalHours)
+{
+    var result = new int[slotCount];
+    Array.Fill(result, -1);
+
+    if (!DateTime.TryParseExact(currentTimeStr ?? string.Empty, "yyyy-MM-ddTHH:mm",
+            CultureInfo.InvariantCulture, DateTimeStyles.None, out var currentDt))
+    {
+        currentDt = DateTime.Now;
+    }
+
+    // Round up to the next interval-aligned hour
+    var nextSlotHour = (currentDt.Hour / intervalHours + 1) * intervalHours;
+
+    for (var i = 0; i < slotCount; i++)
+    {
+        var slotDt = currentDt.Date.AddHours(nextSlotHour + (long)i * intervalHours);
+        var timeStr = slotDt.ToString("yyyy-MM-ddTHH:mm", CultureInfo.InvariantCulture);
+        result[i] = hourlyTimes.IndexOf(timeStr);
+    }
+
+    return result;
+}
+
+static bool IsRainWeatherCode(int code) =>
+    (code >= 51 && code <= 67) ||
+    (code >= 80 && code <= 82) ||
+    (code >= 85 && code <= 86) ||
+    code == 95 || code == 96 || code == 99;
+
+static string WeatherDescription(int code) => code switch
+{
+    0 => "Klar",
+    1 => "Heiter",
+    2 => "Wolkig",
+    3 => "Bedeckt",
+    45 or 48 => "Nebel",
+    51 or 53 => "Nieselregen",
+    55 => "Starker Niesel",
+    56 or 57 => "Eisniesel",
+    61 => "Leichter Regen",
+    63 => "Regen",
+    65 => "Starker Regen",
+    66 or 67 => "Eisregen",
+    71 => "Leichter Schnee",
+    73 => "Schnee",
+    75 => "Starker Schnee",
+    77 => "Schneegriesel",
+    80 => "Leichte Schauer",
+    81 => "Regenschauer",
+    82 => "Starke Schauer",
+    85 or 86 => "Schneeschauer",
+    95 => "Gewitter",
+    96 or 99 => "Gewitter+Hagel",
+    _ => "Unbekannt"
+};
+
+static string WeatherShortLabel(int code) => code switch
+{
+    0 => "Klar",
+    1 or 2 => "Heiter",
+    3 => "Bedeckt",
+    45 or 48 => "Nebel",
+    51 or 53 or 55 => "Niesel",
+    56 or 57 => "Eisniesel",
+    61 or 63 => "Regen",
+    65 => "St.Regen",
+    66 or 67 => "Eisregen",
+    71 or 73 => "Schnee",
+    75 => "St.Schnee",
+    77 => "Griesel",
+    80 or 81 => "Schauer",
+    82 => "St.Schauer",
+    85 or 86 => "Schn.sch.",
+    95 => "Gewitter",
+    96 or 99 => "Hagel",
+    _ => "---"
+};
+
+static string WeatherWindDirection(int degrees) => (degrees % 360) switch
+{
+    >= 337 or < 23 => "N",
+    >= 23 and < 68 => "NO",
+    >= 68 and < 113 => "O",
+    >= 113 and < 158 => "SO",
+    >= 158 and < 203 => "S",
+    >= 203 and < 248 => "SW",
+    >= 248 and < 293 => "W",
+    _ => "NW"
+};
+
 static async Task<TomorrowForecast> GetTomorrowForecastAsync(double latitude, double longitude)
 {
     var url = string.Create(
@@ -1562,4 +1930,93 @@ internal sealed class MealieRecipeSummary
 {
     [JsonPropertyName("name")]
     public string? Name { get; init; }
+}
+
+internal sealed record OpenMeteoWeatherSnapshot(
+    OpenMeteoCurrentData Current,
+    OpenMeteoHourlyData Hourly,
+    OpenMeteoDailyWeatherData Daily);
+
+internal sealed class OpenMeteoWeatherResponse
+{
+    [JsonPropertyName("current")]
+    public OpenMeteoCurrentData? Current { get; init; }
+
+    [JsonPropertyName("hourly")]
+    public OpenMeteoHourlyData? Hourly { get; init; }
+
+    [JsonPropertyName("daily")]
+    public OpenMeteoDailyWeatherData? Daily { get; init; }
+}
+
+internal sealed class OpenMeteoCurrentData
+{
+    [JsonPropertyName("time")]
+    public string? Time { get; init; }
+
+    [JsonPropertyName("temperature_2m")]
+    public double Temperature { get; init; }
+
+    [JsonPropertyName("apparent_temperature")]
+    public double ApparentTemperature { get; init; }
+
+    [JsonPropertyName("weather_code")]
+    public int WeatherCode { get; init; }
+
+    [JsonPropertyName("wind_speed_10m")]
+    public double WindSpeed { get; init; }
+
+    [JsonPropertyName("wind_direction_10m")]
+    public int WindDirection { get; init; }
+
+    [JsonPropertyName("is_day")]
+    public int IsDay { get; init; }
+
+    [JsonPropertyName("precipitation")]
+    public double Precipitation { get; init; }
+}
+
+internal sealed class OpenMeteoHourlyData
+{
+    [JsonPropertyName("time")]
+    public List<string>? Time { get; init; }
+
+    [JsonPropertyName("temperature_2m")]
+    public List<double>? Temperature { get; init; }
+
+    [JsonPropertyName("precipitation_probability")]
+    public List<int>? PrecipitationProbability { get; init; }
+
+    [JsonPropertyName("weather_code")]
+    public List<int>? WeatherCode { get; init; }
+
+    [JsonPropertyName("wind_speed_10m")]
+    public List<double>? WindSpeed { get; init; }
+}
+
+internal sealed class OpenMeteoDailyWeatherData
+{
+    [JsonPropertyName("time")]
+    public List<string>? Time { get; init; }
+
+    [JsonPropertyName("weather_code")]
+    public List<int>? WeatherCode { get; init; }
+
+    [JsonPropertyName("temperature_2m_max")]
+    public List<double>? TemperatureMax { get; init; }
+
+    [JsonPropertyName("temperature_2m_min")]
+    public List<double>? TemperatureMin { get; init; }
+
+    [JsonPropertyName("precipitation_sum")]
+    public List<double>? PrecipitationSum { get; init; }
+
+    [JsonPropertyName("precipitation_probability_max")]
+    public List<int>? PrecipitationProbabilityMax { get; init; }
+
+    [JsonPropertyName("wind_speed_10m_max")]
+    public List<double>? WindSpeedMax { get; init; }
+
+    [JsonPropertyName("wind_direction_10m_dominant")]
+    public List<int>? WindDirectionDominant { get; init; }
 }
