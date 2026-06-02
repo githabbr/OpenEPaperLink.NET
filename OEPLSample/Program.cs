@@ -1399,6 +1399,18 @@ static async Task ShowWeatherOnSchwarz4Async(
     var todayRainPct = daily.PrecipitationProbabilityMax?[0] ?? 0;
     var todayWindMax = daily.WindSpeedMax?[0] ?? 0;
     var todayWindDir = daily.WindDirectionDominant?[0] ?? 0;
+    var tomorrowWeatherCode = daily.WeatherCode?[1] ?? 0;
+    var tomorrowMaxTemp = daily.TemperatureMax?[1] ?? 0;
+    var tomorrowMinTemp = daily.TemperatureMin?[1] ?? 0;
+    var tomorrowPrecip = daily.PrecipitationSum?[1] ?? 0;
+    var tomorrowRainPct = daily.PrecipitationProbabilityMax?[1] ?? 0;
+
+    var tomorrowLabel = "Morgen";
+    if (daily.Time is { Count: > 1 } &&
+        DateOnly.TryParseExact(daily.Time[1], "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var tomorrowDate))
+    {
+        tomorrowLabel = $"Morgen ({GetGermanWeekdayAbbreviation(tomorrowDate)})";
+    }
 
     // ── Header ────────────────────────────────────────────────────────────
     canvas
@@ -1418,7 +1430,11 @@ static async Task ShowWeatherOnSchwarz4Async(
     canvas
         .DrawLine(142, 32, 142, 127, "black", 1)
         .DrawTextFromFile(WeatherDescription(cur.WeatherCode), 148, 36, 15, OeplBundledFonts.SansBold, IsRainWeatherCode(cur.WeatherCode) ? "yellow" : "black")
-        .DrawTextFromFile($"Niederschlag: {cur.Precipitation:0.0} mm", 148, 62, 12, OeplBundledFonts.SansRegular, cur.Precipitation > 0 ? "yellow" : "black");
+        .DrawTextFromFile($"Niederschlag: {cur.Precipitation:0.0} mm", 148, 62, 12, OeplBundledFonts.SansRegular, cur.Precipitation > 0 ? "yellow" : "black")
+        .DrawLine(148, 80, 392, 80, "black", 1)
+        .DrawTextFromFile(tomorrowLabel, 148, 84, 11.5f, OeplBundledFonts.SansBold, "black")
+        .DrawTextFromFile($"{WeatherShortLabel(tomorrowWeatherCode)} {Math.Round(tomorrowMinTemp):0}/{Math.Round(tomorrowMaxTemp):0}°C", 148, 100, 11, OeplBundledFonts.SansRegular, IsRainWeatherCode(tomorrowWeatherCode) ? "yellow" : "black")
+        .DrawTextFromFile($"Regen {tomorrowRainPct}% ({tomorrowPrecip:0.0} mm)", 148, 115, 11, OeplBundledFonts.SansRegular, tomorrowRainPct > 30 || tomorrowPrecip > 0 ? "yellow" : "black");
 
     // ── Daily summary ─────────────────────────────────────────────────────
     canvas.DrawLine(0, 129, width, 129, "black", 1.5f);
